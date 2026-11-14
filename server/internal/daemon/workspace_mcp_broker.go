@@ -223,9 +223,11 @@ func (proxy *remoteMCPProxy) filterWorkspaceTools(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, err
 	}
-	if response["error"] != nil {
-		return body, nil
+	if len(response["error"]) > 0 && !bytes.Equal(response["error"], []byte("null")) {
+		delete(response, "result")
+		return json.Marshal(response)
 	}
+	delete(response, "error")
 	var result map[string]json.RawMessage
 	if err := json.Unmarshal(response["result"], &result); err != nil {
 		return nil, err

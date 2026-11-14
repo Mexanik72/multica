@@ -74,6 +74,16 @@ func TestWorkspaceMCPProxyEnforcesAssignment(t *testing.T) {
 	}
 }
 
+func TestWorkspaceMCPListErrorCannotExposeUnfilteredTools(t *testing.T) {
+	proxy := &remoteMCPProxy{workspaceAllowedTools: []string{"search_issues"}}
+	body, err := proxy.filterWorkspaceTools([]byte(`{
+		"jsonrpc":"2.0","id":1,"error":null,"result":{"tools":[{"name":"create_issue"}]}
+	}`))
+	if err != nil || strings.Contains(string(body), "create_issue") {
+		t.Fatalf("list exposed a restricted tool: %s, %v", body, err)
+	}
+}
+
 func TestWorkspaceMCPProbeListsPagesAndClosesSession(t *testing.T) {
 	var closed atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

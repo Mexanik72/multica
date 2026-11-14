@@ -99,7 +99,7 @@ function McpToolAccessForm({
   const readOnly = new Set(result.data?.read_only_tools);
   const options = Array.from(new Set([...available, ...selected, ...savedNames])).sort();
   const groups = [
-    { label: t(($) => $.tab_body.mcp_config.tool_access.read), names: options.filter((name) => available.has(name) && readOnly.has(name)) },
+    { label: t(($) => $.tab_body.mcp_config.tool_access.read), showCount: true, names: options.filter((name) => available.has(name) && readOnly.has(name)) },
     { label: t(($) => $.tab_body.mcp_config.tool_access.read_write), names: options.filter((name) => available.has(name) && !readOnly.has(name)) },
     { label: t(($) => $.tab_body.mcp_config.tool_access.saved), names: options.filter((name) => !available.has(name)) },
   ];
@@ -177,9 +177,16 @@ function McpToolAccessForm({
             )}
             {options.length > 0 && (
               <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border p-2">
-                {groups.filter(({ names }) => names.length > 0).map(({ label, names }) => (
+                {groups.filter(({ names }) => names.length > 0).map(({ label, names, showCount }) => (
                   <fieldset key={label} className="space-y-1">
-                    <legend className="px-2 text-label font-medium">{label}</legend>
+                    <legend className="px-2 text-label font-medium">
+                      {label}
+                      {showCount && (
+                        <span className="text-muted-foreground tabular-nums">
+                          {" ("}{names.filter((name) => selected.has(name)).length}{")"}
+                        </span>
+                      )}
+                    </legend>
                     {names.map((name) => (
                       <label key={name} className="flex items-center gap-2 px-2 py-1.5">
                         <Checkbox checked={selected.has(name)} disabled={save.isPending} onCheckedChange={(checked) => {

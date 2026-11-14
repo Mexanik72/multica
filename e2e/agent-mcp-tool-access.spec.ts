@@ -63,7 +63,14 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await dialog.getByRole("button", { name: "Load tools" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Could not load the tool list");
     await dialog.getByRole("button", { name: "Retry discovery" }).click();
-    await expect(dialog.getByRole("group", { name: "Read", exact: true }).getByRole("checkbox", { name: "search_issues" })).toBeChecked();
+    const readGroup = dialog.getByRole("group", { name: /^Read \(\d+\)$/ });
+    const readTool = readGroup.getByRole("checkbox", { name: "search_issues" });
+    await expect(readTool).toBeChecked();
+    await expect(readGroup).toHaveAccessibleName("Read (1)");
+    await readTool.uncheck();
+    await expect(readGroup).toHaveAccessibleName("Read (0)");
+    await readTool.check();
+    await expect(readGroup).toHaveAccessibleName("Read (1)");
     await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
     const writeTool = dialog.getByRole("group", { name: "Read / Write", exact: true }).getByRole("checkbox", { name: "create_issue" });
     await expect(writeTool).toBeVisible();

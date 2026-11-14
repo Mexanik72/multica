@@ -58,6 +58,7 @@ import {
   upsertManagedMcpServer,
   type ManagedMcpServer,
 } from "./mcp-config-model";
+import { McpToolAccessDialog } from "./mcp-tool-access-dialog";
 import { McpServerDialog } from "./mcp-server-dialog";
 
 export function McpConfigTab({
@@ -426,6 +427,15 @@ export function McpConfigTab({
                 key={server.id}
                 server={server}
                 overridden={managedNames.has(server.name)}
+                toolAccess={canEdit && server.allowed_tools !== undefined && (server.transport === "http" || server.allowed_tools !== null) && (
+                  <McpToolAccessDialog
+                    agentId={agent.id}
+                    workspaceId={agent.workspace_id ?? ""}
+                    runtime={runtime}
+                    server={server}
+                    disabled={setServerEnabled.isPending || removeServer.isPending}
+                  />
+                )}
                 canEdit={canEdit}
                 busy={setServerEnabled.isPending || removeServer.isPending}
                 onToggle={(enabled) => void handleToggleWorkspaceServer(server.id, enabled)}
@@ -581,6 +591,7 @@ type McpServerView = {
 function McpWorkspaceServerRow({
   server,
   overridden,
+  toolAccess,
   canEdit,
   busy,
   onToggle,
@@ -588,6 +599,7 @@ function McpWorkspaceServerRow({
 }: {
   server: WorkspaceMcpServer;
   overridden: boolean;
+  toolAccess: React.ReactNode;
   canEdit: boolean;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
@@ -603,16 +615,22 @@ function McpWorkspaceServerRow({
           <span className="truncate text-body font-medium">{server.name}</span>
           {overridden && (
             <Badge variant="secondary">
-              {t(($) => $.tab_body.mcp_config.workspace_overridden_badge)}
+              {server.allowed_tools != null && enabled
+                ? t(($) => $.tab_body.mcp_config.tool_access.conflict)
+                : t(($) => $.tab_body.mcp_config.workspace_overridden_badge)}
             </Badge>
           )}
         </div>
         <p className="text-caption text-muted-foreground">
           {mcpTransportLabel(server.transport)}
+          {server.allowed_tools != null && (
+            <> · {t(($) => $.tab_body.mcp_config.tool_access.selected)}</>
+          )}
         </p>
       </div>
       {canEdit && (
         <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+          {toolAccess}
           <Switch
             checked={enabled}
             disabled={busy}

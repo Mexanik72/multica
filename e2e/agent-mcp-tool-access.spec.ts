@@ -1,0 +1,77 @@
+import { expect, test } from "@playwright/test";
+import { TestApiClient } from "./fixtures";
+
+test("keeps saved MCP tool selections through discovery failure and retry", async ({ page }, info) => {
+  const api = new TestApiClient();
+  const id = crypto.randomUUID();
+  const login = await api.login(`mcp-tools-${id}@multica.ai`, "MCP Tools Tester");
+  const workspace = await api.ensureWorkspace("MCP Tools", `mcp-tools-${id}`);
+  await api.markUserOnboarded();
+
+  try {
+    const agentId = crypto.randomUUID();
+    const runtimeId = crypto.randomUUID();
+    const serverId = crypto.randomUUID();
+    const ownerId = login.user.id;
+    await page.addInitScript((token) => {
+      if (token) localStorage.setItem("multica_token", token);
+      localStorage.setItem("multica:chat:isOpen", "false");
+    }, api.getToken());
+
+    const agent = {
+      id: agentId, workspace_id: workspace.id, runtime_id: runtimeId,
+      name: "Researcher", owner_id: ownerId, visibility: "workspace", status: "idle",
+      runtime_mode: "local", runtime_config: {}, custom_args: [], skills: [],
+    };
+    const runtime = {
+      id: runtimeId, workspace_id: workspace.id, owner_id: ownerId, name: "Codex",
+      provider: "codex", status: "online", runtime_mode: "local",
+      metadata: { capabilities: ["workspace-mcp-tools-v1"] },
+    };
+    let server = {
+      id: serverId, workspace_id: workspace.id, name: "workspace-issues",
+      enabled: true, transport: "http", allowed_tools: ["search_issues", "saved_tool"],
+    };
+    await page.route((url) => url.pathname === "/api/agents", (route) => route.fulfill({ json: [agent] }));
+    await page.route((url) => url.pathname === `/api/agents/${agentId}`, (route) => route.fulfill({ json: agent }));
+    await page.route((url) => url.pathname === "/api/runtimes", (route) => route.fulfill({ json: [runtime] }));
+    await page.route(`**/api/agents/${agentId}/mcp-servers`, (route) => route.fulfill({ json: [server] }));
+    await page.route(`**/api/workspaces/${workspace.id}/mcp-servers`, (route) => route.fulfill({ json: [server] }));
+    await page.route(`**/api/agents/${agentId}/mcp-servers/${serverId}/tool-access`, async (route) => {
+      const policy = route.request().postDataJSON();
+      expect(policy).toEqual({ mode: "selected", tools: ["saved_tool", "search_issues"] });
+      server = { ...server, allowed_tools: policy.tools };
+      await route.fulfill({ json: [server] });
+    });
+
+    let probes = 0;
+    await page.route(`**/mcp-servers/${serverId}/probe`, (route) => {
+      expect(route.request().postDataJSON()).toEqual({ runtime_id: runtimeId });
+      probes++;
+      return route.fulfill({ json: { id: String(probes), status: "pending", tools: [] } });
+    });
+    await page.route(`**/mcp-servers/${serverId}/probes/*`, (route) => route.fulfill({
+      json: probes === 1
+        ? { id: "1", status: "failed", error_code: "handshake", tools: [] }
+        : { id: "2", status: "completed", tools: ["search_issues", "create_issue"] },
+    }));
+
+    await page.goto(`/${workspace.slug}/agents/${agentId}?view=mcp_config`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Tool access", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Tool access for workspace-issues" });
+    await dialog.getByRole("button", { name: "Load tools" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Could not load the tool list");
+    await dialog.getByRole("button", { name: "Retry discovery" }).click();
+    await expect(dialog.getByRole("checkbox", { name: "search_issues" })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: "create_issue" })).not.toBeChecked();
+    await expect(dialog.getByText("Unavailable on this runtime")).toBeVisible();
+    await info.attach("MCP tool access", {
+      body: await page.screenshot({ animations: "disabled" }), contentType: "image/png",
+    });
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  } finally {
+    await api.deleteWorkspace();
+  }
+});

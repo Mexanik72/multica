@@ -520,6 +520,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		h.UpdateStore = handler.NewRedisUpdateStore(rdb)
 		h.ModelListStore = handler.NewRedisModelListStore(rdb)
 		h.ModelCatalogCache = handler.NewRedisModelCatalogCache(rdb)
+		h.McpProbeStore = handler.NewRedisMcpProbeStore(rdb)
 		h.LocalSkillListStore = handler.NewRedisLocalSkillListStore(rdb)
 		h.LocalSkillImportStore = handler.NewRedisLocalSkillImportStore(rdb)
 		h.LivenessStore = handler.NewRedisLivenessStore(rdb)
@@ -1676,6 +1677,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/runtimes/{runtimeId}/tasks/pending", h.ListPendingTasksByRuntime)
 		r.Post("/runtimes/{runtimeId}/update/{updateId}/result", h.ReportUpdateResult)
 		r.Post("/runtimes/{runtimeId}/models/{requestId}/result", h.ReportModelListResult)
+		r.Get("/runtimes/{runtimeId}/mcp-probes/{requestId}", h.GetDaemonMcpProbeJob)
+		r.Post("/runtimes/{runtimeId}/mcp-probes/{requestId}/result", h.ReportDaemonMcpProbeResult)
 		r.Post("/runtimes/{runtimeId}/local-skills/{requestId}/result", h.ReportLocalSkillListResult)
 		r.Post("/runtimes/{runtimeId}/local-skills/import/{requestId}/result", h.ReportLocalSkillImportResult)
 		r.Post("/runtimes/{runtimeId}/environment-commands/claim", h.ClaimEnvironmentCommands)
@@ -2435,6 +2438,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/mcp-servers", h.ListAgentMcpServers)
 					r.Post("/mcp-servers", h.AddAgentMcpServer)
 					r.Put("/mcp-servers/{serverId}/enabled", h.SetAgentMcpServerEnabled)
+					r.Put("/mcp-servers/{serverId}/tool-access", h.SetAgentMcpToolAccess)
+					r.Post("/mcp-servers/{serverId}/probe", h.ProbeAssignedWorkspaceMcp)
+					r.Get("/mcp-servers/{serverId}/probes/{requestId}", h.GetAssignedWorkspaceMcpProbe)
 					r.Delete("/mcp-servers/{serverId}", h.RemoveAgentMcpServer)
 					// Dedicated env-management endpoint. Admits the agent
 					// owner or a workspace owner/admin; agent actors are

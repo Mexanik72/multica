@@ -183,6 +183,7 @@ type WorkspacesChangedPayload struct{}
 // heartbeat, which claims whatever is queued) — so an unknown value from a
 // newer server stays safe on an older daemon.
 const (
+	PendingWorkKindMcpProbe         = "mcp_probe"
 	PendingWorkKindModelList        = "model_list"
 	PendingWorkKindLocalSkills      = "local_skills"
 	PendingWorkKindLocalSkillImport = "local_skill_import"
@@ -460,6 +461,7 @@ type DaemonHeartbeatRequestPayload struct {
 // and re-registers; without it the dead UUID would keep heartbeating until the
 // daemon process restarts.
 type DaemonHeartbeatAckPayload struct {
+	PendingMcpProbe         *DaemonHeartbeatPendingMcpProbe         `json:"pending_mcp_probe,omitempty"`
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
 	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`

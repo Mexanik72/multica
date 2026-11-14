@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -4712,6 +4713,10 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 			go d.handleLocalSkillImport(ctx, *rt, *resp.PendingLocalSkillImport)
 		}
 	}
+	if resp.PendingMcpProbe != nil {
+		go d.handleWorkspaceMCPProbe(ctx, runtimeID, resp.PendingMcpProbe.ID)
+	}
+
 }
 
 // handlePendingWorkHint reacts to a server-pushed daemon:pending_work frame by
@@ -8285,6 +8290,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	}
 	if task.Agent != nil {
 		agentMcpConfig = task.Agent.McpConfig
+		if len(task.Agent.RestrictedWorkspaceMCP) > 0 && (len(agentMcpConfig) == 0 || bytes.Equal(bytes.TrimSpace(agentMcpConfig), []byte("null"))) {
+			agentMcpConfig = json.RawMessage(`{"mcpServers":{}}`)
+		}
 		effectiveMcpConfig = agentMcpConfig
 		if merged, mergeErr := mergeRuntimeAndAgentMcpConfig(provider, agentMcpConfig); mergeErr != nil {
 			taskLog.Warn("mcp_config: runtime merge failed; using agent configuration only",
@@ -8304,6 +8312,23 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		if provider == "cursor" {
 			cursorMcpAuthSource = strings.TrimSpace(task.Agent.CustomEnv[execenv.CursorMcpAuthSourceEnv])
 		}
+	}
+	var codexPinnedMCPURLs map[string]string
+	if task.Agent != nil && len(task.Agent.RestrictedWorkspaceMCP) > 0 {
+		rt := d.findRuntime(task.RuntimeID)
+		if provider != "codex" || rt == nil || rt.ProfileID != "" {
+			return TaskResult{}, errors.New("restricted MCP tools require a local built-in Codex runtime")
+		}
+		mounts, pinnedURLs, brokers, err := startWorkspaceMCPBrokers(ctx, task.Agent.RestrictedWorkspaceMCP)
+		if err != nil {
+			return TaskResult{}, fmt.Errorf("prepare restricted MCP servers: %w", err)
+		}
+		defer brokers.Close()
+		effectiveMcpConfig, err = mergeTaskRemoteMCPConfig(effectiveMcpConfig, mounts)
+		if err != nil {
+			return TaskResult{}, fmt.Errorf("apply restricted MCP configuration: %w", err)
+		}
+		codexPinnedMCPURLs = pinnedURLs
 	}
 	// Decode openclaw-specific runtime_config knobs once so reuse / prepare /
 	// ExecOptions all see the same mode + gateway pin (issue #3260). Parse
@@ -9124,6 +9149,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ExtraArgs:              extraArgs,
 		CustomArgs:             customArgs,
 		McpConfig:              mcpConfig,
+		CodexPinnedMCPURLs:     codexPinnedMCPURLs,
 		ThinkingLevel:          thinkingLevel,
 		ServiceTier:            serviceTier,
 		OpenclawMode:           openclawMode,

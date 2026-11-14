@@ -843,18 +843,19 @@ type TaskUsageData struct {
 // TaskAgentData holds agent info included in claim responses so the daemon
 // can set up the execution environment (branch naming, skill files, instructions).
 type TaskAgentData struct {
-	ID                    string                      `json:"id"`
-	Name                  string                      `json:"name"`
-	Instructions          string                      `json:"instructions"`
-	Skills                []service.AgentSkillData    `json:"skills,omitempty"`
-	SkillRefs             []service.AgentSkillRefData `json:"skill_refs,omitempty"`
-	CustomEnv             map[string]string           `json:"custom_env,omitempty"`
-	CustomArgs            []string                    `json:"custom_args,omitempty"`
-	McpConfig             json.RawMessage             `json:"mcp_config,omitempty"`
-	Model                 string                      `json:"model,omitempty"`
-	ThinkingLevel         string                      `json:"thinking_level,omitempty"`
-	ServiceTier           string                      `json:"service_tier,omitempty"`
-	DisabledRuntimeSkills []DisabledRuntimeSkill      `json:"disabled_runtime_skills,omitempty"`
+	ID                     string                            `json:"id"`
+	Name                   string                            `json:"name"`
+	Instructions           string                            `json:"instructions"`
+	Skills                 []service.AgentSkillData          `json:"skills,omitempty"`
+	SkillRefs              []service.AgentSkillRefData       `json:"skill_refs,omitempty"`
+	CustomEnv              map[string]string                 `json:"custom_env,omitempty"`
+	CustomArgs             []string                          `json:"custom_args,omitempty"`
+	RestrictedWorkspaceMCP []protocol.RestrictedWorkspaceMCP `json:"restricted_workspace_mcp,omitempty"`
+	McpConfig              json.RawMessage                   `json:"mcp_config,omitempty"`
+	Model                  string                            `json:"model,omitempty"`
+	ThinkingLevel          string                            `json:"thinking_level,omitempty"`
+	ServiceTier            string                            `json:"service_tier,omitempty"`
+	DisabledRuntimeSkills  []DisabledRuntimeSkill            `json:"disabled_runtime_skills,omitempty"`
 	// RuntimeConfig is the agent's saved runtime_config JSON as-is. The
 	// daemon decodes it per-provider — e.g. the openclaw backend reads
 	// `mode` + `gateway.*` to choose between embedded and gateway routing

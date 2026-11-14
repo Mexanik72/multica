@@ -165,6 +165,17 @@ export function useSetAgentMcpServerEnabled(agentId: string) {
     api.setAgentMcpServerEnabled(agentId, serverId, enabled));
 }
 
+export function useSetAgentMcpToolAccess(agentId: string) {
+  return useAgentMcpMutation(agentId, ({ serverId, tools }: { serverId: string; tools: string[] | null }) =>
+    api.setAgentMcpToolAccess(agentId, serverId, tools));
+}
+
+export function useStartAgentMcpProbe(agentId: string, serverId: string) {
+  return useMutation({
+    mutationFn: (runtimeId: string) => api.startAgentMcpProbe(agentId, serverId, runtimeId),
+  });
+}
+
 export function useRemoveAgentMcpServer(agentId: string) {
   return useAgentMcpMutation(agentId, (serverId: string) =>
     api.removeAgentMcpServer(agentId, serverId));

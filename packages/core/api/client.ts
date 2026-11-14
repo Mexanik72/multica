@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { z, ZodType } from "zod";
 import { AgentRuntimeSchema, EMPTY_RUNTIME } from "../runtimes/schema";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
@@ -558,6 +558,7 @@ import {
   PluginInstallationSchema,
   PluginPreviewSchema,
   WorkspaceMcpServerListSchema,
+  WorkspaceMcpProbeSchema,
   WorkspaceMcpServerSchema,
   ShareLinkSchema,
   ShareLinkListResponseSchema,
@@ -3481,6 +3482,39 @@ export class ApiClient {
     );
     return parseWithFallback(raw, WorkspaceMcpServerListSchema, [] as WorkspaceMcpServer[], {
       endpoint: "PUT /api/agents/{id}/mcp-servers/{serverId}/enabled",
+    });
+  }
+
+  async setAgentMcpToolAccess(agentId: string, serverId: string, tools: string[] | null) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/tool-access`,
+      {
+        method: "PUT",
+        body: JSON.stringify(tools === null ? { mode: "all" } : { mode: "selected", tools }),
+      },
+    );
+    return parseWithFallback(raw, WorkspaceMcpServerListSchema, [] as WorkspaceMcpServer[], {
+      endpoint: "PUT /api/agents/{id}/mcp-servers/{serverId}/tool-access",
+    });
+  }
+
+  async startAgentMcpProbe(agentId: string, serverId: string, runtimeId: string) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/probe`,
+      { method: "POST", body: JSON.stringify({ runtime_id: runtimeId }) },
+    );
+    return parseWithFallback<z.infer<typeof WorkspaceMcpProbeSchema> | null>(raw, WorkspaceMcpProbeSchema, null, {
+      endpoint: "POST /api/agents/{id}/mcp-servers/{serverId}/probe",
+    });
+  }
+
+  async getAgentMcpProbe(agentId: string, serverId: string, requestId: string, signal?: AbortSignal) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/probes/${encodeURIComponent(requestId)}`,
+      { signal },
+    );
+    return parseWithFallback<z.infer<typeof WorkspaceMcpProbeSchema> | null>(raw, WorkspaceMcpProbeSchema, null, {
+      endpoint: "GET /api/agents/{id}/mcp-servers/{serverId}/probes/{requestId}",
     });
   }
 

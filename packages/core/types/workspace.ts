@@ -37,6 +37,8 @@ export interface WorkspaceMcpServer {
   name: string;
   transport: string;
   enabled?: boolean;
+  /** Assignment policy. null grants all tools, [] grants none. */
+  allowed_tools?: string[] | null;
   /**
    * Live agents the entry is assigned to. Only the workspace library listing
    * carries it, and servers older than this field omit it.

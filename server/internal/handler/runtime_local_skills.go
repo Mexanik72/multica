@@ -74,6 +74,9 @@ const (
 	runtimeLocalSkillPendingTimeout = 3 * time.Minute
 	runtimeLocalSkillRunningTimeout = 60 * time.Second
 	runtimeLocalSkillStoreRetention = 5 * time.Minute
+	// The daemon can return up to 9 MiB of text, with up to six JSON bytes
+	// per input byte, plus file paths and result metadata.
+	maxLocalSkillResultBytes = 56 << 20
 )
 
 // LocalSkillListStore tracks pending / running / completed runtime-local-skill
@@ -82,7 +85,7 @@ const (
 // can have POST, heartbeat and poll land on different nodes and still agree
 // on the request's state.
 type LocalSkillListStore interface {
-	Create(ctx context.Context, runtimeID string) (*RuntimeLocalSkillListRequest, error)
+	Create(ctx context.Context, runtimeID, agentID, skillKey string) (*RuntimeLocalSkillListRequest, error)
 	Get(ctx context.Context, id string) (*RuntimeLocalSkillListRequest, error)
 	// HasPending is a cheap read-only probe that reports whether the runtime
 	// has at least one pending request. Callers on the hot path (e.g. the
@@ -90,7 +93,7 @@ type LocalSkillListStore interface {
 	// never start a claim they might have to abort.
 	HasPending(ctx context.Context, runtimeID string) (bool, error)
 	PopPending(ctx context.Context, runtimeID string) (*RuntimeLocalSkillListRequest, error)
-	Complete(ctx context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool) error
+	Complete(ctx context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool, preview *protocol.HermesSkillPreview) error
 	Fail(ctx context.Context, id string, errMsg string) error
 }
 
@@ -202,6 +205,9 @@ type RuntimeLocalMcpServerSummary struct {
 }
 
 type RuntimeLocalSkillListRequest struct {
+	SkillKey     string                         `json:"skill_key,omitempty"`
+	Preview      *protocol.HermesSkillPreview   `json:"preview,omitempty"`
+	AgentID      string                         `json:"agent_id,omitempty"`
 	ID           string                         `json:"id"`
 	RuntimeID    string                         `json:"runtime_id"`
 	Status       RuntimeLocalSkillRequestStatus `json:"status"`
@@ -250,7 +256,7 @@ func NewInMemoryLocalSkillListStore() *InMemoryLocalSkillListStore {
 	return &InMemoryLocalSkillListStore{requests: make(map[string]*RuntimeLocalSkillListRequest)}
 }
 
-func (s *InMemoryLocalSkillListStore) Create(_ context.Context, runtimeID string) (*RuntimeLocalSkillListRequest, error) {
+func (s *InMemoryLocalSkillListStore) Create(_ context.Context, runtimeID, agentID, skillKey string) (*RuntimeLocalSkillListRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -263,13 +269,16 @@ func (s *InMemoryLocalSkillListStore) Create(_ context.Context, runtimeID string
 	req := &RuntimeLocalSkillListRequest{
 		ID:        randomID(),
 		RuntimeID: runtimeID,
+		AgentID:   agentID,
+		SkillKey:  skillKey,
 		Status:    RuntimeLocalSkillPending,
 		Supported: true,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 	s.requests[req.ID] = req
-	return req, nil
+	snapshot := *req
+	return &snapshot, nil
 }
 
 func (s *InMemoryLocalSkillListStore) Get(_ context.Context, id string) (*RuntimeLocalSkillListRequest, error) {
@@ -281,7 +290,8 @@ func (s *InMemoryLocalSkillListStore) Get(_ context.Context, id string) (*Runtim
 		return nil, nil
 	}
 	applyLocalSkillListTimeout(req, time.Now())
-	return req, nil
+	snapshot := *req
+	return &snapshot, nil
 }
 
 func (s *InMemoryLocalSkillListStore) HasPending(_ context.Context, runtimeID string) (bool, error) {
@@ -317,11 +327,13 @@ func (s *InMemoryLocalSkillListStore) PopPending(_ context.Context, runtimeID st
 		startedAt := now
 		oldest.RunStartedAt = &startedAt
 		oldest.UpdatedAt = now
+		snapshot := *oldest
+		return &snapshot, nil
 	}
-	return oldest, nil
+	return nil, nil
 }
 
-func (s *InMemoryLocalSkillListStore) Complete(_ context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool) error {
+func (s *InMemoryLocalSkillListStore) Complete(_ context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool, preview *protocol.HermesSkillPreview) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -331,6 +343,7 @@ func (s *InMemoryLocalSkillListStore) Complete(_ context.Context, id string, ski
 		req.Supported = supported
 		req.McpServers = mcpServers
 		req.McpSupported = mcpSupported
+		req.Preview = preview
 		req.UpdatedAt = time.Now()
 	}
 	return nil
@@ -564,6 +577,7 @@ func (h *Handler) requireRuntimeCapabilityReadAccess(w http.ResponseWriter, r *h
 		provider:    rt.Provider,
 		status:      rt.Status,
 		ownerID:     uuidToString(rt.OwnerID),
+		runtimeMode: rt.RuntimeMode,
 	}, member, true
 }
 
@@ -590,11 +604,12 @@ type runtimeIDAndWorkspace struct {
 	provider    string
 	status      string
 	ownerID     string
+	runtimeMode string
 }
 
 func (h *Handler) InitiateListLocalSkills(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
-	rt, _, ok := h.requireRuntimeCapabilityReadAccess(w, r, obsmetrics.RuntimeLookupSourceRuntimeAPI, runtimeID)
+	rt, member, ok := h.requireRuntimeCapabilityReadAccess(w, r, obsmetrics.RuntimeLookupSourceRuntimeAPI, runtimeID)
 	if !ok {
 		return
 	}
@@ -603,7 +618,27 @@ func (h *Handler) InitiateListLocalSkills(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	req, err := h.LocalSkillListStore.Create(r.Context(), rt.runtimeID)
+	var agentID string
+	if scope := r.URL.Query().Get("agent_id"); scope != "" {
+		agent, ok := h.requireHermesSkillInventoryAgent(w, r, rt, scope)
+		if !ok {
+			return
+		}
+		agentID = uuidToString(agent.ID)
+	}
+	skillKey := r.URL.Query().Get("skill_key")
+	if skillKey != "" {
+		if agentID == "" || len(skillKey) > 1024 {
+			writeError(w, http.StatusBadRequest, "invalid agent skill selection")
+			return
+		}
+		if rt.ownerID == "" || rt.ownerID != uuidToString(member.UserID) {
+			writeError(w, http.StatusForbidden, "insufficient permissions")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	req, err := h.LocalSkillListStore.Create(r.Context(), rt.runtimeID, agentID, skillKey)
 	if err != nil {
 		if writeRequestCancellation(w, r, err) {
 			return
@@ -621,7 +656,7 @@ func (h *Handler) InitiateListLocalSkills(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) GetLocalSkillListRequest(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
-	rt, _, ok := h.requireRuntimeCapabilityReadAccess(w, r, obsmetrics.RuntimeLookupSourceRuntimeLocalSkillPoll, runtimeID)
+	rt, member, ok := h.requireRuntimeCapabilityReadAccess(w, r, obsmetrics.RuntimeLookupSourceRuntimeLocalSkillPoll, runtimeID)
 	if !ok {
 		return
 	}
@@ -641,10 +676,67 @@ func (h *Handler) GetLocalSkillListRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.SkillKey != "" {
+		if rt.ownerID == "" || rt.ownerID != uuidToString(member.UserID) {
+			writeError(w, http.StatusForbidden, "insufficient permissions")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	if req.AgentID != "" {
+		if _, ok := h.requireHermesSkillInventoryAgent(w, r, rt, req.AgentID); !ok {
+			return
+		}
+	}
+
 	if writeRequestCancellation(w, r, r.Context().Err()) {
 		return
 	}
 	writeJSON(w, http.StatusOK, req)
+}
+
+func (h *Handler) requireHermesSkillInventoryAgent(w http.ResponseWriter, r *http.Request, rt runtimeIDAndWorkspace, agentID string) (db.Agent, bool) {
+	if rt.provider != "hermes" || rt.runtimeMode != "local" {
+		writeError(w, http.StatusNotFound, "Hermes runtime not found")
+		return db.Agent{}, false
+	}
+	agent, ok := h.loadAgentForUser(w, r, agentID)
+	if !ok {
+		return db.Agent{}, false
+	}
+	if uuidToString(agent.WorkspaceID) != rt.workspaceID || uuidToString(agent.RuntimeID) != rt.runtimeID {
+		writeError(w, http.StatusNotFound, "agent is not bound to this runtime")
+		return db.Agent{}, false
+	}
+	actorType, actorID := h.resolveActor(r, requestUserID(r), rt.workspaceID)
+	if !h.canAccessPrivateAgent(r.Context(), agent, actorType, actorID, rt.workspaceID) {
+		writeError(w, http.StatusForbidden, "you do not have access to this agent")
+		return db.Agent{}, false
+	}
+	return agent, true
+}
+
+func (h *Handler) pendingLocalSkillInventory(ctx context.Context, runtimeID string, req *RuntimeLocalSkillListRequest) *protocol.DaemonHeartbeatPendingLocalSkills {
+	pending := &protocol.DaemonHeartbeatPendingLocalSkills{ID: req.ID}
+	if req.AgentID == "" {
+		return pending
+	}
+	agent, err := h.Queries.GetAgent(ctx, parseUUID(req.AgentID))
+	if err != nil || uuidToString(agent.RuntimeID) != runtimeID {
+		if err := h.LocalSkillListStore.Fail(ctx, req.ID, "agent is no longer available on this runtime"); err != nil {
+			slog.Warn("failed to close agent skill discovery request", "request_id", req.ID, "error", err)
+		}
+		return nil
+	}
+	var args []string
+	_ = json.Unmarshal(agent.CustomArgs, &args)
+	pending.HermesAgent = &protocol.HermesSkillInventoryAgent{
+		ID:       req.AgentID,
+		Home:     unmarshalCustomEnv(agent)["HERMES_HOME"],
+		Args:     args,
+		SkillKey: req.SkillKey,
+	}
+	return pending
 }
 
 func (h *Handler) InitiateImportLocalSkill(w http.ResponseWriter, r *http.Request) {
@@ -758,6 +850,9 @@ func (h *Handler) ReportLocalSkillListResult(w http.ResponseWriter, r *http.Requ
 	}
 
 	var body struct {
+		SkillKey     string                         `json:"skill_key"`
+		Preview      *protocol.HermesSkillPreview   `json:"preview"`
+		AgentID      string                         `json:"agent_id"`
 		Status       string                         `json:"status"`
 		Skills       []RuntimeLocalSkillSummary     `json:"skills"`
 		Supported    *bool                          `json:"supported"`
@@ -765,12 +860,22 @@ func (h *Handler) ReportLocalSkillListResult(w http.ResponseWriter, r *http.Requ
 		McpSupported *bool                          `json:"mcp_supported"`
 		Error        string                         `json:"error"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLocalSkillResultBytes)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if body.Status == "completed" {
+		// Older daemons answer with the machine-wide inventory. Only accept
+		// that response for requests without an agent scope.
+		if req.AgentID != body.AgentID || req.SkillKey != body.SkillKey {
+			body.Skills = nil
+			body.McpServers = nil
+			body.Preview = nil
+			unsupported := false
+			body.Supported = &unsupported
+			body.McpSupported = &unsupported
+		}
 		supported := true
 		if body.Supported != nil {
 			supported = *body.Supported
@@ -779,7 +884,10 @@ func (h *Handler) ReportLocalSkillListResult(w http.ResponseWriter, r *http.Requ
 		if body.McpSupported != nil {
 			mcpSupported = *body.McpSupported
 		}
-		if err := h.LocalSkillListStore.Complete(r.Context(), requestID, body.Skills, supported, body.McpServers, mcpSupported); err != nil {
+		if req.SkillKey == "" {
+			body.Preview = nil
+		}
+		if err := h.LocalSkillListStore.Complete(r.Context(), requestID, body.Skills, supported, body.McpServers, mcpSupported, body.Preview); err != nil {
 			// Surface the store failure as 5xx so the daemon can retry instead
 			// of swallowing the report (leaves the request stuck in running
 			// until the server-side timeout, which is exactly the "looks OK but

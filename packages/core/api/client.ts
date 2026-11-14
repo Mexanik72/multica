@@ -535,6 +535,8 @@ import {
   EMPTY_LIST_GITHUB_INSTALLATIONS_RESPONSE,
   EMPTY_LIST_GITHUB_REPOSITORIES_RESPONSE,
   RuntimeModelListRequestSchema,
+  RuntimeLocalSkillListRequestSchema,
+  MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
   SkillSchema,
   SkillHubImportSchema,
@@ -2938,17 +2940,40 @@ export class ApiClient {
 
   async initiateListLocalSkills(
     runtimeId: string,
+    agent?: { id: string; workspaceId: string; skillKey?: string },
   ): Promise<RuntimeLocalSkillListRequest> {
-    return this.fetch(`/api/runtimes/${runtimeId}/local-skills`, {
+    const params = new URLSearchParams();
+    if (agent) {
+      params.set("agent_id", agent.id);
+      if (agent.skillKey) params.set("skill_key", agent.skillKey);
+    }
+    const scope = params.size ? `?${params}` : "";
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/local-skills${scope}`, {
       method: "POST",
+      headers: workspaceHeader(agent),
     });
+    return parseWithFallback(
+      raw,
+      RuntimeLocalSkillListRequestSchema,
+      { ...MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST, runtime_id: runtimeId },
+      { endpoint: "POST /api/runtimes/{id}/local-skills" },
+    );
   }
 
   async getListLocalSkillsResult(
     runtimeId: string,
     requestId: string,
+    workspaceId?: string,
   ): Promise<RuntimeLocalSkillListRequest> {
-    return this.fetch(`/api/runtimes/${runtimeId}/local-skills/${requestId}`);
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/local-skills/${requestId}`, {
+      headers: workspaceHeader(workspaceId ? { workspaceId } : undefined),
+    });
+    return parseWithFallback(
+      raw,
+      RuntimeLocalSkillListRequestSchema,
+      { ...MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST, id: requestId, runtime_id: runtimeId },
+      { endpoint: "GET /api/runtimes/{id}/local-skills/{requestId}" },
+    );
   }
 
   async initiateImportLocalSkill(

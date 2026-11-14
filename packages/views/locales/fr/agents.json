@@ -735,6 +735,11 @@
       "save_failed_toast": "Échec de l'enregistrement de la configuration de routage"
     },
     "skills": {
+      "hermes_title": "Compétences Hermes",
+      "hermes_profile_badge": "Profil Hermes",
+      "hermes_agent_badge": "Créée par l’agent",
+      "hermes_preview_unavailable": "Impossible de charger les fichiers. Vérifiez que le démon est en ligne et à jour.",
+      "hermes_unsupported": "Mettez à jour le démon pour afficher les compétences Hermes de cet agent.",
       "assigned_title": "Assignés à l'agent",
       "assigned_hint": "Désactivez un skill pour suspendre son utilisation sans le retirer.",
       "runtime_title": "Hérités du runtime",

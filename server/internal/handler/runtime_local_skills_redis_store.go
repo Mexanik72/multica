@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -79,11 +80,13 @@ func NewRedisLocalSkillListStore(rdb redis.UniversalClient) *RedisLocalSkillList
 	return &RedisLocalSkillListStore{rdb: rdb}
 }
 
-func (s *RedisLocalSkillListStore) Create(ctx context.Context, runtimeID string) (*RuntimeLocalSkillListRequest, error) {
+func (s *RedisLocalSkillListStore) Create(ctx context.Context, runtimeID, agentID, skillKey string) (*RuntimeLocalSkillListRequest, error) {
 	now := time.Now()
 	req := &RuntimeLocalSkillListRequest{
 		ID:        randomID(),
 		RuntimeID: runtimeID,
+		AgentID:   agentID,
+		SkillKey:  skillKey,
 		Status:    RuntimeLocalSkillPending,
 		Supported: true,
 		CreatedAt: now,
@@ -230,7 +233,7 @@ func (s *RedisLocalSkillListStore) PopPending(ctx context.Context, runtimeID str
 	return nil, nil
 }
 
-func (s *RedisLocalSkillListStore) Complete(ctx context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool) error {
+func (s *RedisLocalSkillListStore) Complete(ctx context.Context, id string, skills []RuntimeLocalSkillSummary, supported bool, mcpServers []RuntimeLocalMcpServerSummary, mcpSupported bool, preview *protocol.HermesSkillPreview) error {
 	req, err := s.loadListRequest(ctx, id)
 	if err != nil {
 		return err
@@ -243,6 +246,7 @@ func (s *RedisLocalSkillListStore) Complete(ctx context.Context, id string, skil
 	req.Supported = supported
 	req.McpServers = mcpServers
 	req.McpSupported = mcpSupported
+	req.Preview = preview
 	req.UpdatedAt = time.Now()
 	return s.persistListRequest(ctx, req)
 }

@@ -95,6 +95,7 @@ import type {
   PluginSurfaceLaunch,
   ResourceLabelsResponse,
   RuntimeModelListRequest,
+  RuntimeLocalSkillListRequest,
   SearchIssuesResponse,
   SearchProjectsResponse,
   ShareLink,
@@ -3766,6 +3767,50 @@ export const MALFORMED_RUNTIME_MODEL_LIST_REQUEST: RuntimeModelListRequest = {
   status: "failed",
   supported: true,
   error: "invalid model discovery response",
+  created_at: "",
+  updated_at: "",
+};
+
+export const RuntimeLocalSkillListRequestSchema = z.object({
+  skill_key: z.string().optional(),
+  preview: z.object({
+    content: z.string(),
+    files: z.array(z.object({ path: z.string().min(1), content: z.string() })),
+  }).optional(),
+  id: z.string().min(1),
+  runtime_id: z.string().default(""),
+  agent_id: z.string().optional(),
+  status: z.enum(["pending", "running", "completed", "conflict", "failed", "timeout"]).catch("failed"),
+  supported: z.boolean().default(true),
+  error: z.string().optional(),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+  skills: z.array(z.object({
+    key: z.string().min(1),
+    name: z.string(),
+    description: z.string().optional(),
+    source_path: z.string().default(""),
+    provider: z.string().default(""),
+    root: z.enum(["provider", "universal", "plugin", "hermes_profile", "hermes_agent"]).optional().catch(undefined),
+    plugin: z.string().optional(),
+    can_disable: z.boolean().optional(),
+    file_count: z.number().default(0),
+  })).optional(),
+  mcp_servers: z.array(z.object({
+    name: z.string(),
+    transport: z.enum(["stdio", "http", "sse", "unknown"]).optional().catch("unknown"),
+    source: z.string().optional(),
+    enabled: z.boolean().default(false),
+  })).optional(),
+  mcp_supported: z.boolean().optional(),
+});
+
+export const MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST: RuntimeLocalSkillListRequest = {
+  id: "",
+  runtime_id: "",
+  status: "failed",
+  supported: false,
+  error: "invalid skill discovery response",
   created_at: "",
   updated_at: "",
 };

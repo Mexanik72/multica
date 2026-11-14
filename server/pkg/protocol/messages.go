@@ -497,7 +497,25 @@ type DaemonHeartbeatPendingModelList struct {
 // DaemonHeartbeatPendingLocalSkills describes a request for the runtime's
 // local-skill inventory.
 type DaemonHeartbeatPendingLocalSkills struct {
-	ID string `json:"id"`
+	ID          string                     `json:"id"`
+	HermesAgent *HermesSkillInventoryAgent `json:"hermes_agent,omitempty"`
+}
+
+type HermesSkillInventoryAgent struct {
+	ID       string   `json:"id"`
+	Home     string   `json:"home,omitempty"`
+	Args     []string `json:"args,omitempty"`
+	SkillKey string   `json:"skill_key,omitempty"`
+}
+
+type HermesSkillPreview struct {
+	Content string                   `json:"content"`
+	Files   []HermesSkillPreviewFile `json:"files"`
+}
+
+type HermesSkillPreviewFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 // DaemonHeartbeatPendingLocalSkillImport describes a request to import a

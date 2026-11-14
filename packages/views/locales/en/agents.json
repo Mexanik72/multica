@@ -735,6 +735,11 @@
       "save_failed_toast": "Failed to save routing config"
     },
     "skills": {
+      "hermes_title": "Hermes skills",
+      "hermes_profile_badge": "Hermes profile",
+      "hermes_agent_badge": "Created by agent",
+      "hermes_preview_unavailable": "Couldn’t load the skill files. Check that the daemon is online and up to date.",
+      "hermes_unsupported": "Update the daemon to view this agent’s Hermes skills.",
       "assigned_title": "Assigned to agent",
       "assigned_hint": "Turn off a skill to pause its use without removing it.",
       "runtime_title": "Inherited from runtime",

@@ -112,7 +112,7 @@ MCP server 的命令、引數和環境變數會隨 AI 代理配置儲存在伺�
 Codex、Hermes 和 OpenClaw 的處理稍有不同：
 
 - Codex 使用單次執行的 `CODEX_HOME`，不會把 skill 寫進系統級 Codex 目錄。
-- Hermes 使用單次執行的 `HERMES_HOME`。已有的本地配置仍然可以被讀取，但繫結的 skill 與會話資料按執行隔離。這套隔離只在 AI 代理繫結了 skill 時啟用，沒有繫結 skill 的執行使用本機原有的 Hermes 主目錄。
+- Hermes 讀取所選設定檔的設定與技能。Multica 為每次執行配置受管理的 `HERMES_HOME`，用於已指派的技能與對話狀態。Multica 任務建立的技能會依代理與設定檔儲存在常駐程式所在裝置。執行環境上線時，網頁版和桌面版的代理「技能」分頁會顯示這兩類技能。
 - OpenClaw 使用當前執行工作目錄下的 `skills/`，並由單次執行配置把該目錄設為工作區。
 
 如何建立和繫結 skill，見 [Skills](/skills)。

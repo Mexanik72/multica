@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Loader2,
   Plus,
@@ -15,11 +15,13 @@ import type {
   Agent,
   AgentRuntime,
   DisabledRuntimeSkill,
+  HermesSkillPreview,
   RuntimeLocalSkillSummary,
 } from "@multica/core/types";
 import { api, ApiError } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
+  hermesSkillPreviewOptions,
   isRuntimeUsableForUser,
   runtimeCapabilitiesOptions,
   runtimeDisplayLabel,
@@ -73,12 +75,19 @@ export function SkillsTab({
     canReadRuntime
       ? runtime.id
       : null;
-  const runtimeQuery = useQuery(runtimeCapabilitiesOptions(runtimeId));
+  const isHermes = runtime?.provider === "hermes";
+  const runtimeQuery = useQuery(runtimeCapabilitiesOptions(
+    runtimeId,
+    isHermes ? { id: agent.id, workspaceId: wsId } : undefined,
+  ));
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<SelectedSkill>(null);
   const selectedWorkspaceId = selected?.kind === "workspace" ? selected.id : "";
   const detailQuery = useQuery(skillDetailOptions(wsId, selectedWorkspaceId));
+  const canPreview = isHermes && Boolean(currentUserId) && runtime?.owner_id === currentUserId;
+  const selectedHermesKey = canPreview && selected?.kind === "runtime" ? selected.skill.key : null;
+  const previewQuery = useQuery(hermesSkillPreviewOptions(runtimeId, wsId, agent.id, selectedHermesKey));
 
   const refreshAgent = async () => {
     await qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
@@ -120,7 +129,7 @@ export function SkillsTab({
     skill: RuntimeLocalSkillSummary,
     enabled: boolean,
   ) => {
-    if (!runtime || !skill.root) return;
+    if (!runtime || !skill.root || skill.root === "hermes_agent" || skill.root === "hermes_profile") return;
     const busyKey = runtimeSkillIdentity(skill);
     setBusyId(busyKey);
     try {
@@ -148,7 +157,6 @@ export function SkillsTab({
 
   return (
     <div className="space-y-8">
-
       <CapabilitySection
         title={t(($) => $.tab_body.skills.assigned_title)}
         description={t(($) => $.tab_body.skills.assigned_hint)}
@@ -235,8 +243,10 @@ export function SkillsTab({
       </CapabilitySection>
 
       <CapabilitySection
-        title={t(($) => $.tab_body.skills.runtime_title)}
-        description={t(($) => $.tab_body.skills.runtime_hint, {
+        title={isHermes
+          ? t(($) => $.tab_body.skills.hermes_title)
+          : t(($) => $.tab_body.skills.runtime_title)}
+        description={isHermes ? undefined : t(($) => $.tab_body.skills.runtime_hint, {
           runtime: runtime ? runtimeDisplayLabel(runtime) : "Runtime",
         })}
         action={
@@ -279,7 +289,9 @@ export function SkillsTab({
             }
           />
         ) : runtimeQuery.data?.supported !== true ? (
-          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_unsupported)} />
+          <RuntimeNotice text={isHermes
+            ? t(($) => $.tab_body.skills.hermes_unsupported)
+            : t(($) => $.tab_body.skills.runtime_unsupported)} />
         ) : runtimeSkills.length === 0 ? (
           <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_empty)} />
         ) : (
@@ -292,6 +304,7 @@ export function SkillsTab({
               );
               const busyKey = runtimeSkillIdentity(skill);
               const busy = busyId === busyKey;
+              const origin = skillOriginLabel(t, skill);
               return (
                 <li
                   key={`${skill.root ?? "unknown"}:${skill.key}`}
@@ -324,6 +337,7 @@ export function SkillsTab({
                       </span>
                     </span>
                   </button>
+                  {origin && <Badge variant="secondary" className="shrink-0">{origin}</Badge>}
                   {canEdit &&
                     skill.can_disable === true &&
                     skill.root &&
@@ -353,10 +367,23 @@ export function SkillsTab({
         selected={selected}
         onOpenChange={(open) => !open && setSelected(null)}
         workspaceSkill={detailQuery.data}
-        loading={selected?.kind === "workspace" && detailQuery.isLoading}
+        preview={runtimeId && selectedHermesKey ? previewQuery.data : undefined}
+        previewUnavailable={Boolean(selectedHermesKey && (!runtimeId || previewQuery.isError))}
+        loading={(selected?.kind === "workspace" && detailQuery.isLoading) || previewQuery.isLoading}
       />
     </div>
   );
+}
+
+function skillOriginLabel(t: ReturnType<typeof useT<"agents">>["t"], skill: RuntimeLocalSkillSummary) {
+  switch (skill.root) {
+    case "hermes_agent":
+      return t(($) => $.tab_body.skills.hermes_agent_badge);
+    case "hermes_profile":
+      return t(($) => $.tab_body.skills.hermes_profile_badge);
+    default:
+      return null;
+  }
 }
 
 function runtimeSkillIdentity(skill: RuntimeLocalSkillSummary): string {
@@ -386,7 +413,7 @@ function CapabilitySection({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -395,7 +422,7 @@ function CapabilitySection({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-body font-medium">{title}</h3>
-          <p className="mt-1 text-caption leading-5 text-muted-foreground">{description}</p>
+          {description && <p className="mt-1 text-caption leading-5 text-muted-foreground">{description}</p>}
         </div>
         {action}
       </div>
@@ -421,11 +448,15 @@ function SkillDetailDialog({
   selected,
   onOpenChange,
   workspaceSkill,
+  preview,
+  previewUnavailable,
   loading,
 }: {
   selected: SelectedSkill;
   onOpenChange: (open: boolean) => void;
   workspaceSkill?: Awaited<ReturnType<typeof api.getSkill>>;
+  preview?: HermesSkillPreview;
+  previewUnavailable: boolean;
   loading: boolean;
 }) {
   const { t } = useT("agents");
@@ -441,7 +472,7 @@ function SkillDetailDialog({
             <DialogTitle>{title}</DialogTitle>
             <Badge variant={runtimeSkill ? "secondary" : "outline"}>
               {runtimeSkill
-                ? t(($) => $.tab_body.skills.inherited_badge)
+                ? skillOriginLabel(t, runtimeSkill) ?? t(($) => $.tab_body.skills.inherited_badge)
                 : t(($) => $.tab_body.skills.workspace_badge)}
             </Badge>
           </div>
@@ -452,21 +483,30 @@ function SkillDetailDialog({
             <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
             {t(($) => $.tab_body.skills.detail_loading)}
           </div>
+        ) : preview ? (
+          <HermesSkillFiles key={runtimeSkill?.key} preview={preview} />
         ) : runtimeSkill ? (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
-            <dd className="break-all">{runtimeSkill.source_path}</dd>
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
-            <dd>{runtimeSkill.provider}</dd>
-            {runtimeSkill.plugin && (
-              <>
-                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
-                <dd>{runtimeSkill.plugin}</dd>
-              </>
+          <>
+            {previewUnavailable && (
+              <p role="status" className="text-caption text-muted-foreground">
+                {t(($) => $.tab_body.skills.hermes_preview_unavailable)}
+              </p>
             )}
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
-            <dd>{runtimeSkill.file_count}</dd>
-          </dl>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
+              <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
+              <dd className="break-all">{runtimeSkill.source_path}</dd>
+              <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
+              <dd>{runtimeSkill.provider}</dd>
+              {runtimeSkill.plugin && (
+                <>
+                  <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
+                  <dd>{runtimeSkill.plugin}</dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
+              <dd>{runtimeSkill.file_count}</dd>
+            </dl>
+          </>
         ) : workspaceSkill ? (
           <div className="space-y-4">
             <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
@@ -488,5 +528,35 @@ function SkillDetailDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function HermesSkillFiles({ preview }: {
+  preview: HermesSkillPreview;
+}) {
+  const { t } = useT("agents");
+  const fileSelectId = useId();
+  const primaryPath = "SKILL.md";
+  const [path, setPath] = useState(primaryPath);
+  const content = preview.files.find((file) => file.path === path)?.content ?? preview.content;
+
+  return (
+    <div className="space-y-2">
+      <label htmlFor={fileSelectId} className="block text-caption font-medium">
+        {t(($) => $.tab_body.skills.detail_files)}
+      </label>
+      <select
+        id={fileSelectId}
+        value={path}
+        onChange={(event) => setPath(event.target.value)}
+        className="w-full rounded-md border bg-background px-2 py-1.5 text-caption"
+      >
+        <option value={primaryPath}>{primaryPath}</option>
+        {preview.files.map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}
+      </select>
+      <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
+        <pre className="whitespace-pre-wrap break-words font-mono text-caption leading-5">{content}</pre>
+      </div>
+    </div>
   );
 }

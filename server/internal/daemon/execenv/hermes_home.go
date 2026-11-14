@@ -17,9 +17,9 @@ import (
 )
 
 // Hermes discovers skills in HERMES_HOME/skills before skills.external_dirs;
-// it does not scan the task workspace. Bound skills therefore use an isolated
-// home overlay, while skill-less tasks keep the original home. Conversation
-// stores are the effective home so state.db stays inside its owning profile.
+// managed tasks use an isolated home for bound skills and an agent-scoped
+// creation directory for learned skills. Conversation stores are the effective
+// home so state.db stays inside its owning profile.
 //
 // Mirror host-home entries except task-owned overrides. The local skills directory
 // contains bound skills; external_dirs preserves shared skills and configured
@@ -320,7 +320,7 @@ func hermesProfileDir(root, name string) (home string, mustExist bool, err error
 // described above. The daemon exports the returned Home as HERMES_HOME on the
 // hermes subprocess so the CLI discovers the bound skills natively.
 //
-// Callers gate this on the agent having skills bound; it is a full rebuild each
+// Callers use this for managed Hermes tasks; it is rebuilt each
 // time (mirror reconciled, config re-derived, bound skills rewritten) so a Reuse
 // after a skill/config change lands cleanly. It fails CLOSED: if the mirror, the
 // derived config, or the bound skills can't be established the whole overlay is
@@ -340,7 +340,7 @@ func hermesProfileDir(root, name string) (home string, mustExist bool, err error
 // The returned hermesSessionMount reports the effective home and whether the
 // store actually holds a transcript, so the caller never
 // tells a task it can resume history that is not there.
-func prepareHermesHome(hermesHome, sourceHome string, sourceMustExist bool, workspaceSkills []SkillContextForEnv, env map[string]string, memoryStore, sessionStore string, logger *slog.Logger) (sessions hermesSessionMount, err error) {
+func prepareHermesHome(hermesHome, sourceHome string, sourceMustExist bool, workspaceSkills []SkillContextForEnv, env map[string]string, memoryStore, sessionStore, skillStore string, logger *slog.Logger) (sessions hermesSessionMount, err error) {
 	sharedHome := strings.TrimSpace(sourceHome)
 	if sharedHome == "" {
 		sharedHome = platformDefaultHermesHome()
@@ -390,7 +390,12 @@ func prepareHermesHome(hermesHome, sourceHome string, sourceMustExist bool, work
 	if err := mirrorSharedHermesHome(sharedHome, hermesHome, logger); err != nil {
 		return hermesSessionMount{}, fmt.Errorf("mirror shared hermes home: %w", err)
 	}
-	if err := writeDerivedHermesConfig(sharedHome, hermesHome, env, logger); err != nil {
+	if skillStore != "" {
+		if err := os.MkdirAll(skillStore, 0o700); err != nil {
+			return hermesSessionMount{}, fmt.Errorf("create Hermes agent skills store: %w", err)
+		}
+	}
+	if err := writeDerivedHermesConfig(sharedHome, hermesHome, env, skillStore, logger); err != nil {
 		return hermesSessionMount{}, fmt.Errorf("derive hermes config: %w", err)
 	}
 	if err := writeDerivedHermesEnv(sharedHome, hermesHome); err != nil {
@@ -643,7 +648,7 @@ func linkSharedHermesEntry(src, dst string) error {
 // is written 0600 (it can hold inline api_key secrets) via atomic replace, so
 // reuse also repairs a prior file's permissions. The terminal passthrough
 // allowlist preserves task credentials in tool shells without storing values.
-func writeDerivedHermesConfig(sharedHome, hermesHome string, env map[string]string, logger *slog.Logger) error {
+func writeDerivedHermesConfig(sharedHome, hermesHome string, env map[string]string, skillStore string, logger *slog.Logger) error {
 	srcConfig := filepath.Join(sharedHome, "config.yaml")
 	dstConfig := filepath.Join(hermesHome, "config.yaml")
 
@@ -669,31 +674,35 @@ func writeDerivedHermesConfig(sharedHome, hermesHome string, env map[string]stri
 			logger.Warn("execenv: hermes source home has no config.yaml; this task runs without a configured provider unless the environment supplies one",
 				"source_home", sharedHome, "overlay_home", hermesHome)
 		}
-		doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
-		if err := setHermesExternalDirs(doc, computeHermesExternalDirs(sharedHome, nil, env)); err != nil {
-			return err
-		}
-		if err := setHermesTerminalEnvPassthrough(doc); err != nil {
-			return err
-		}
-		if err := disableHermesGatewayIngress(doc); err != nil {
-			return err
-		}
-		return marshalYAMLToFile(doc, dstConfig)
 	}
 
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("parse hermes config: %w", err)
+	doc := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+	if err == nil {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse hermes config: %w", err)
+		}
 	}
 	dirs := computeHermesExternalDirs(sharedHome, existingHermesExternalDirs(&doc), env)
+	if skillStore != "" {
+		dirs = hermesProfileSkillDirs(sharedHome, &doc, env)
+		if sessionSkills := HermesSessionSkillStore(skillStore); hermesStorePopulated(sessionSkills) {
+			dirs = append([]string{sessionSkills}, dirs...)
+		}
+	}
 	if err := setHermesExternalDirs(&doc, dirs); err != nil {
 		return err
 	}
+	if skillStore != "" {
+		skills := yamlMapValue(yamlDocumentRoot(&doc), "skills")
+		yamlSetMapValue(skills, "create_dir", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: skillStore})
+	}
+
 	// Disable any host-configured external memory backend (memory.provider) so a
 	// Supermemory/Hindsight/etc. bank isn't shared across managed tasks; the
 	// built-in per-task memories/ dir is already isolated above.
-	disableHermesMemoryProvider(&doc)
+	if err == nil {
+		disableHermesMemoryProvider(&doc)
+	}
 	if err := disableHermesGatewayIngress(&doc); err != nil {
 		return err
 	}
@@ -898,9 +907,6 @@ func writeHermesBoundSkills(hermesHome string, workspaceSkills []SkillContextFor
 		return fmt.Errorf("clear hermes skills dir: %w", err)
 	}
 	if len(workspaceSkills) == 0 {
-		// Defensive: callers gate on a non-empty set, but stay correct if that
-		// ever changes — an empty local dir just means the external root is the
-		// only source, matching un-redirected behavior.
 		return os.MkdirAll(skillsDir, 0o700)
 	}
 	// This directory is owned by the isolated home and replaced on every run.

@@ -99,6 +99,8 @@ type PrepareParams struct {
 	HermesSourceMustExist bool
 	// HermesRequiresManagedHome keeps restricted assignments inside the task home.
 	HermesRequiresManagedHome bool
+	// HermesSkillStore receives skills created by this agent during managed runs.
+	HermesSkillStore string
 	// HermesMemoryStore is the agent's persistent Hermes memory store
 	// (HermesMemoryStorePath) the overlay links memories/ to, so memory outlives
 	// the task. Empty keeps memories/ task-local — no agent to key on, or the
@@ -667,11 +669,10 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		env.ClaudeSettingsPath = settingsPath
 	}
 
-	// Hermes discovers workspace skills and restricted MCP mounts through its
-	// home. Use a task-local home when either is configured.
-	if params.Provider == "hermes" && (len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome) {
+	// The managed Hermes home isolates workspace skills, skill creation and restricted MCP mounts.
+	if params.Provider == "hermes" && (len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome || params.HermesSkillStore != "") {
 		hermesHome := filepath.Join(envRoot, "hermes-home")
-		sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
+		sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, params.HermesSkillStore, logger)
 		if err != nil {
 			return nil, fmt.Errorf("execenv: prepare hermes-home: %w", err)
 		}
@@ -802,9 +803,11 @@ type ReuseParams struct {
 	HermesSourceMustExist bool
 	// HermesRequiresManagedHome keeps restricted assignments inside the task home.
 	HermesRequiresManagedHome bool
-	HermesEnv                 map[string]string
-	HermesMemoryStore         string
-	HermesSessionStore        string
+	// HermesSkillStore receives skills created by this agent during managed runs.
+	HermesSkillStore   string
+	HermesEnv          map[string]string
+	HermesMemoryStore  string
+	HermesSessionStore string
 	// ReasonixEnv mirrors PrepareParams.ReasonixEnv on reuse so the rewritten
 	// reasonix.toml keeps restating the owner's current permissions.
 	ReasonixEnv map[string]string
@@ -1003,8 +1006,8 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	// old broker endpoints and bound skills cannot survive in a reused home.
 	if params.Provider == "hermes" && env.RootDir != "" {
 		hermesHome := filepath.Join(env.RootDir, "hermes-home")
-		if len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome {
-			sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
+		if len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome || params.HermesSkillStore != "" {
+			sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, params.HermesSkillStore, logger)
 			if err != nil {
 				// Fail closed: a half-built overlay must not run. Returning nil
 				// makes the daemon fall back to a fresh Prepare, whose error

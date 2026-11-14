@@ -717,6 +717,11 @@
       "model_override_placeholder": "openrouter/@preset/agent-reasoning"
     },
     "skills": {
+      "hermes_title": "Habilidades de Hermes",
+      "hermes_profile_badge": "Perfil de Hermes",
+      "hermes_agent_badge": "Creada por el agente",
+      "hermes_preview_unavailable": "No se pudieron cargar los archivos. Comprueba que el demonio esté conectado y actualizado.",
+      "hermes_unsupported": "Actualiza el demonio para ver las habilidades de Hermes de este agente.",
       "assigned_title": "Asignadas al agente",
       "assigned_hint": "Desactiva una skill para pausar su uso sin quitarla.",
       "runtime_title": "Heredadas del runtime",

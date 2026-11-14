@@ -1375,7 +1375,7 @@ export interface RuntimeLocalSkillSummary {
    * discovery omit the field; treat `undefined` as unknown rather than
    * asserting either origin.
    */
-  root?: "provider" | "universal" | "plugin";
+  root?: "provider" | "universal" | "plugin" | "hermes_profile" | "hermes_agent";
   /** Enabled runtime plugin that contributed this skill, when applicable. */
   plugin?: string;
   /** New daemons set this only when they can enforce per-agent disablement. */
@@ -1390,8 +1390,16 @@ export interface RuntimeLocalMcpServerSummary {
 	enabled: boolean;
 }
 
+export interface HermesSkillPreview {
+  content: string;
+  files: { path: string; content: string }[];
+}
+
 export interface RuntimeLocalSkillListRequest {
+  skill_key?: string;
+  preview?: HermesSkillPreview;
   id: string;
+  agent_id?: string;
   runtime_id: string;
   status: RuntimeLocalSkillStatus;
   skills?: RuntimeLocalSkillSummary[];

@@ -57,6 +57,8 @@ import {
   ListPropertiesResponseSchema,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
   RuntimeModelListRequestSchema,
+  RuntimeLocalSkillListRequestSchema,
+  MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST,
   SearchProjectsResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -1783,6 +1785,43 @@ describe("CommentTriggerPreviewSchema.blocked", () => {
       ],
     });
     expect(parsed.blocked.map((b) => b.target_id)).toEqual(["s1", "a1"]);
+  });
+});
+
+describe("RuntimeLocalSkillListRequestSchema", () => {
+  it("keeps scoped Hermes inventory and drops unknown origins", () => {
+    const parsed = RuntimeLocalSkillListRequestSchema.parse({
+      id: "request",
+      agent_id: "agent",
+      status: "completed",
+      skills: [
+        { key: "review", name: "Review", root: "hermes_profile" },
+        { key: "release", name: "Release", root: "hermes_agent" },
+        { key: "other", name: "Other", root: "future-origin" },
+      ],
+    });
+    expect(parsed.agent_id).toBe("agent");
+    expect(parsed.skills?.map((skill) => skill.root)).toEqual([
+      "hermes_profile", "hermes_agent", undefined,
+    ]);
+  });
+
+  it("rejects malformed Hermes preview files", () => {
+    expect(RuntimeLocalSkillListRequestSchema.safeParse({
+      id: "request",
+      status: "completed",
+      preview: { content: "# Skill", files: [{ path: "reference.md", content: 123 }] },
+    }).success).toBe(false);
+  });
+
+  it("fails malformed skill results without exposing empty success", () => {
+    const parsed = parseWithFallback(
+      { id: "request", status: "completed", skills: [{ name: "Missing key" }] },
+      RuntimeLocalSkillListRequestSchema,
+      MALFORMED_RUNTIME_LOCAL_SKILL_LIST_REQUEST,
+      { endpoint: "test" },
+    );
+    expect(parsed.status).toBe("failed");
   });
 });
 

@@ -41,6 +41,16 @@ vi.mock("@multica/core/hooks", () => ({
 vi.mock("@multica/core/api", () => ({
   api: {
     listSkills: (...args: unknown[]) => mockListSkills(...args),
+    initiateListLocalSkills: vi.fn().mockResolvedValue({
+      status: "completed",
+      supported: true,
+      agent_id: "agent-1",
+      skill_key: "review",
+      preview: {
+        content: "# Review steps",
+        files: [{ path: "references/checklist.md", content: "Check the build" }],
+      },
+    }),
     getSkill: (...args: unknown[]) => mockGetSkill(...args),
     setAgentSkills: vi.fn(),
     setAgentSkillEnabled: (...args: unknown[]) => mockSetAgentSkillEnabled(...args),
@@ -58,9 +68,9 @@ vi.mock("@multica/core/runtimes", async () => {
     );
   return {
     ...actual,
-    runtimeCapabilitiesOptions: (runtimeId: string | null) => ({
-      queryKey: ["runtime-capabilities", runtimeId],
-      queryFn: () => mockRuntimeCapabilities(runtimeId),
+    runtimeCapabilitiesOptions: (runtimeId: string | null, agentScope?: { id: string; workspaceId: string }) => ({
+      queryKey: ["runtime-capabilities", runtimeId, agentScope],
+      queryFn: () => agentScope ? mockRuntimeCapabilities(runtimeId, agentScope) : mockRuntimeCapabilities(runtimeId),
       enabled: Boolean(runtimeId),
       retry: false,
     }),
@@ -158,6 +168,39 @@ describe("SkillsTab", () => {
       mcpServers: [],
       mcpSupported: true,
     });
+  });
+
+  it("shows Hermes profile and task-created skills for the current agent", async () => {
+    mockRuntimeCapabilities.mockResolvedValue({
+      supported: true,
+      skills: [
+        { key: "review", name: "Review checklist", root: "hermes_profile" },
+        { key: "release", name: "Release checklist", root: "hermes_agent" },
+      ],
+    });
+    renderSkillsTab({}, { ...onlineRuntime, provider: "hermes" });
+
+    expect(await screen.findByText("Review checklist")).toBeVisible();
+    expect(screen.getByText("Hermes profile")).toBeVisible();
+    expect(screen.getByText("Release checklist")).toBeVisible();
+    expect(screen.getByText("Created by agent")).toBeVisible();
+    expect(mockRuntimeCapabilities).toHaveBeenCalledWith("runtime-1", {
+      id: "agent-1",
+      workspaceId: "ws-1",
+    });
+  });
+
+  it("opens the Hermes skill source and its supporting files", async () => {
+    mockRuntimeCapabilities.mockResolvedValue({
+      supported: true,
+      skills: [{ key: "review", name: "Review checklist", provider: "hermes", root: "hermes_profile" }],
+    });
+    renderSkillsTab({}, { ...onlineRuntime, provider: "hermes" });
+    await userEvent.click(await screen.findByRole("button", { name: /Review checklist/ }));
+
+    expect(await screen.findByText("# Review steps")).toBeVisible();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Files" }), "references/checklist.md");
+    expect(screen.getByText("Check the build")).toBeVisible();
   });
 
   it("separates workspace assignments from inherited runtime skills", async () => {

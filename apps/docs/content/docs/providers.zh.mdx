@@ -112,7 +112,7 @@ MCP server 的命令、参数和环境变量会随智能体配置保存在服务
 Codex、Hermes 和 OpenClaw 的处理稍有不同：
 
 - Codex 使用单次执行的 `CODEX_HOME`，不会把 skill 写进系统级 Codex 目录。
-- Hermes 使用单次执行的 `HERMES_HOME`。已有的本地配置仍然可以被读取，但绑定的 skill 与会话数据按运行隔离。这套隔离只在智能体绑定了 skill 时启用，没有绑定 skill 的运行使用本机原有的 Hermes 主目录。
+- Hermes 读取所选配置档案的设置和技能。Multica 为每次运行配置独立管理的 `HERMES_HOME`，用于分配的技能和会话状态。Multica 任务创建的技能按智能体和配置档案保存在守护进程所在设备上。运行环境在线时，网页端和桌面端的智能体「技能」标签页会显示这两类技能。
 - OpenClaw 使用当前执行工作目录下的 `skills/`，并由单次执行配置把该目录设为工作区。
 
 如何创建和绑定 skill，见 [Skills](/skills)。

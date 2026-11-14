@@ -109,6 +109,7 @@ export type {
   RuntimeLocalSkillSummary,
 	RuntimeLocalMcpServerSummary,
   RuntimeLocalSkillListRequest,
+  HermesSkillPreview,
   CreateRuntimeLocalSkillImportRequest,
   RuntimeLocalSkillImportRequest,
   RuntimeLocalSkillsResult,

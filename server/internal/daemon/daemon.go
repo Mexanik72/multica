@@ -4697,7 +4697,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	}
 	if resp.PendingLocalSkills != nil {
 		if rt := d.findRuntime(runtimeID); rt != nil {
-			go d.handleLocalSkillList(ctx, *rt, resp.PendingLocalSkills.ID)
+			go d.handleLocalSkillList(ctx, *rt, *resp.PendingLocalSkills)
 		}
 	}
 	// Prefer the batch field (new backend); fall back to singular (old backend).
@@ -4985,7 +4985,12 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 	})
 }
 
-func (d *Daemon) handleLocalSkillList(ctx context.Context, rt Runtime, requestID string) {
+func (d *Daemon) handleLocalSkillList(ctx context.Context, rt Runtime, pending PendingLocalSkills) {
+	requestID := pending.ID
+	if pending.HermesAgent != nil {
+		d.handleHermesAgentSkillList(ctx, rt, pending)
+		return
+	}
 	d.logger.Info("runtime local skills requested", "runtime_id", rt.ID, "request_id", requestID, "provider", rt.Provider)
 
 	skills, supported, err := d.listLocalSkills(ctx, rt)
@@ -8374,6 +8379,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	var hermesEnv map[string]string
 	var hermesMemoryStore string
 	var hermesSessionStore string
+	var hermesSkillStore string
 	if provider == "hermes" {
 		// Resolve from the argv hermes will actually parse — launch prefix,
 		// the filtered custom args, then `acp` — which agent.HermesLaunchArgv
@@ -8383,12 +8389,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// participates in the scan. Approximating that argv reads a different
 		// profile than the process does, and the overlay ends up seeded from
 		// the wrong home (GH #7046).
-		sel := agent.ParseHermesProfileArgs(agent.HermesLaunchArgv(profileFixedArgs, agentCustomArgs, d.logger))
-		res := execenv.ResolveHermesProfile(agentEnvOverrides["HERMES_HOME"], sel.Name, sel.Found, sel.Inline)
+		res := resolveHermesLaunchProfile(agentEnvOverrides["HERMES_HOME"], profileFixedArgs, agentCustomArgs, d.logger)
 		if res.Err != nil {
 			return TaskResult{}, fmt.Errorf("resolve hermes profile: %w", res.Err)
 		}
 		hermesSourceHome = res.SourceHome
+		hermesSkillStore = execenv.HermesAgentSkillStorePath(d.cfg.Profile, task.AgentID, res.SourceHome)
 		hermesSourceMustExist = res.MustExist
 		// Which home the overlay is seeded from decides whether the task sees
 		// the user's provider config at all, and it is derived from the daemon
@@ -8477,6 +8483,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			HermesEnv:                 hermesEnv,
 			HermesMemoryStore:         hermesMemoryStore,
 			HermesSessionStore:        hermesSessionStore,
+			HermesSkillStore:          hermesSkillStore,
 			ReasonixEnv:               reasonixEnv,
 			CodexCustomArgs:           codexSandboxArgs,
 			Task:                      taskCtx,
@@ -8528,6 +8535,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			HermesEnv:                 hermesEnv,
 			HermesMemoryStore:         hermesMemoryStore,
 			HermesSessionStore:        hermesSessionStore,
+			HermesSkillStore:          hermesSkillStore,
 			ReasonixEnv:               reasonixEnv,
 			CodexCustomArgs:           codexSandboxArgs,
 			Task:                      taskCtx,
@@ -9008,6 +9016,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 	if hermesOverlayActive {
+		if hermesSkillStore != "" {
+			defer func() {
+				if err := execenv.PersistHermesSessionSkills(env.HermesHome, hermesSkillStore, taskCtx.AgentSkills); err != nil {
+					taskLog.Warn("failed to persist Hermes session skills", "error", err)
+				}
+			}()
+		}
 		// Retire an owner left by a crashed/interrupted daemon before it can
 		// execute tools with the preceding task's frozen environment.
 		if err := agent.StopHermesTaskGateway(backendConfig, env.HermesHome); err != nil {
@@ -9096,8 +9111,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		mcpConfig = effectiveMcpConfig
 	}
 	if hermesOverlayActive {
-		// Stripped above, alongside the launch prefix. A skill-less hermes task
-		// has no overlay to protect and keeps its flags untouched.
+		// Stripped above, alongside the launch prefix.
 		customArgs = hermesOverlayCustomArgs
 	}
 	thinkingLevel := ""

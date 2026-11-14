@@ -85,7 +85,9 @@ const (
 	// plugin. Plugin roots use a namespace prefix so their invocation keys
 	// match Claude Code (for example paper-desktop:design-to-code) and never
 	// collide with standalone user skills.
-	localSkillRootPlugin = "plugin"
+	localSkillRootPlugin        = "plugin"
+	localSkillRootHermesProfile = "hermes_profile"
+	localSkillRootHermesAgent   = "hermes_agent"
 )
 
 // localSkillRootsForProvider returns the ordered user-level skill roots
@@ -378,6 +380,9 @@ func readLocalSkillMainFile(skillDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("SKILL.md is not a regular file")
+	}
 	if info.Size() > maxLocalSkillFileSize {
 		return "", fmt.Errorf("SKILL.md exceeds %d bytes", maxLocalSkillFileSize)
 	}
@@ -389,9 +394,6 @@ func readLocalSkillMainFile(skillDir string) (string, error) {
 }
 
 func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileData, error) {
-	files := make([]SkillFileData, 0)
-	var totalSize int64
-
 	// filepath.WalkDir does not follow a symlinked root, so when the runtime
 	// root contains symlinks into a shared skill installer (e.g. lark-cli's
 	// ~/.agents/skills/<name>) walking from the symlink path enumerates zero
@@ -402,11 +404,17 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 		walkRoot = resolved
 	}
 
-	err := filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+	return collectLocalSkillFilesFromFS(os.DirFS(walkRoot), skillDir, includeContent)
+}
+
+func collectLocalSkillFilesFromFS(bundle fs.FS, skillDir string, includeContent bool) ([]SkillFileData, error) {
+	files := make([]SkillFileData, 0)
+	var totalSize int64
+	err := fs.WalkDir(bundle, ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
-		if path == walkRoot {
+		if path == "." {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
@@ -425,17 +433,8 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 			return nil
 		}
 
-		rel, err := filepath.Rel(walkRoot, path)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.Clean(rel)
-		if rel == "." || filepath.IsAbs(rel) || strings.HasPrefix(rel, "..") {
-			return nil
-		}
-
 		info, err := entry.Info()
-		if err != nil || info.Size() > maxLocalSkillFileSize {
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxLocalSkillFileSize {
 			return nil
 		}
 		// A binary supporting file cannot survive SkillFileData.Content: the
@@ -449,10 +448,10 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 		// a binary file with an unlisted or missing extension (a .safetensors,
 		// a .parquet, a stray no-extension blob) and a text file in a
 		// non-UTF-8 encoding, both of which corrupt exactly the same way.
-		if skill.IsLikelyBinaryFilePath(rel) {
+		if skill.IsLikelyBinaryFilePath(path) {
 			slog.Info("local skill: skipping binary file",
 				"skill_dir", skillDir,
-				"path", filepath.ToSlash(rel),
+				"path", path,
 				"size", info.Size(),
 				"reason", "binary_extension",
 			)
@@ -472,8 +471,8 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 		// UTF-8 but contains NUL — UTF-16LE text made of ASCII characters is a
 		// realistic example — still comes back different from what went in.
 		// Require both: valid UTF-8 AND NUL-free.
-		content, err := os.ReadFile(path)
-		if err != nil {
+		content, err := fs.ReadFile(bundle, path)
+		if err != nil || int64(len(content)) > maxLocalSkillFileSize {
 			return nil
 		}
 		if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
@@ -483,7 +482,7 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 			}
 			slog.Info("local skill: skipping binary file",
 				"skill_dir", skillDir,
-				"path", filepath.ToSlash(rel),
+				"path", path,
 				"size", info.Size(),
 				"reason", reason,
 			)
@@ -492,12 +491,12 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 		if len(files) >= maxLocalSkillFileCount {
 			return fmt.Errorf("local skill exceeds %d files", maxLocalSkillFileCount)
 		}
-		totalSize += info.Size()
+		totalSize += int64(len(content))
 		if totalSize > maxLocalSkillBundleSize {
 			return fmt.Errorf("local skill exceeds %d bytes in total", maxLocalSkillBundleSize)
 		}
 
-		file := SkillFileData{Path: filepath.ToSlash(rel)}
+		file := SkillFileData{Path: path}
 		if includeContent {
 			file.Content = string(content)
 		}
@@ -519,7 +518,10 @@ func listRuntimeLocalSkills(provider string) ([]runtimeLocalSkillSummary, bool, 
 	if err != nil || !supported {
 		return nil, supported, err
 	}
+	return listLocalSkillsInRoots(provider, roots)
+}
 
+func listLocalSkillsInRoots(provider string, roots []localSkillRoot) ([]runtimeLocalSkillSummary, bool, error) {
 	// Walk each runtime root with two extensions over filepath.WalkDir:
 	//   - Follow symlinks at every level. Installers like lark-cli ship
 	//     each skill as a symlink into a shared ~/.agents/skills/<name>;

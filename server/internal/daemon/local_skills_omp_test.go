@@ -50,7 +50,7 @@ func TestOmpLocalSkillsListAndImportUseSelectedProfile(t *testing.T) {
 				}
 				return []agent.OmpSkill{{Name: "review", Description: "Resolved skill", Path: filepath.Join(tc.dir, "SKILL.md")}}, nil
 			}
-			d.handleLocalSkillList(t.Context(), rt, "list-request")
+			d.handleLocalSkillList(t.Context(), rt, PendingLocalSkills{ID: "list-request"})
 			if report.Status != "completed" || len(report.Skills) != 1 || report.Skills[0].Key != "review" || report.Skills[0].SourcePath != relativizeHomePath(tc.dir) {
 				t.Fatalf("wrong inventory: %+v", report)
 			}
@@ -86,7 +86,7 @@ func TestOmpLocalSkillsDoNotFallBackOnDiscoveryFailure(t *testing.T) {
 	discoverOmpSkills = func(context.Context, agent.Command) ([]agent.OmpSkill, error) {
 		return nil, errors.New("inventory unavailable")
 	}
-	d.handleLocalSkillList(t.Context(), rt, "list")
+	d.handleLocalSkillList(t.Context(), rt, PendingLocalSkills{ID: "list"})
 	d.handleLocalSkillImport(t.Context(), rt, PendingLocalSkillImport{ID: "import", SkillKey: "review"})
 	delete(d.profileLaunchSpecs, rt.ProfileID)
 	if _, err := d.ompSkills(t.Context(), rt); err == nil {

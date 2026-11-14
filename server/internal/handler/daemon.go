@@ -1857,7 +1857,7 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 		if popErr != nil {
 			slog.Warn("local skill list PopPending failed", "error", popErr, "runtime_id", runtimeID)
 		} else if pendingSkills != nil {
-			ack.PendingLocalSkills = &protocol.DaemonHeartbeatPendingLocalSkills{ID: pendingSkills.ID}
+			ack.PendingLocalSkills = h.pendingLocalSkillInventory(ctx, runtimeID, pendingSkills)
 		}
 	case probeErr != nil:
 		if errors.Is(probeErr, context.DeadlineExceeded) || errors.Is(probeErr, context.Canceled) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -47,6 +49,7 @@ type McpProbeRequest struct {
 	Status        McpProbeStatus `json:"status"`
 	ErrorCode     string         `json:"error_code,omitempty"`
 	Tools         []string       `json:"tools,omitempty"`
+	ReadOnlyTools []string       `json:"read_only_tools,omitempty"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	RunStartedAt  *time.Time     `json:"-"`
@@ -64,9 +67,9 @@ type McpProbeCreate struct {
 
 // McpProbeReport is what the daemon posts back.
 type McpProbeReport struct {
-	Status    string   `json:"status"` // "completed" or "failed"
-	ErrorCode string   `json:"error_code,omitempty"`
-	Tools     []string `json:"tools,omitempty"`
+	Status    string `json:"status"` // "completed" or "failed"
+	ErrorCode string `json:"error_code,omitempty"`
+	protocol.WorkspaceMCPToolList
 }
 
 // McpProbeStore is the multi-replica contract for in-flight probes.
@@ -75,7 +78,7 @@ type McpProbeStore interface {
 	Get(ctx context.Context, id string) (*McpProbeRequest, error)
 	HasPending(ctx context.Context, runtimeID string) (bool, error)
 	PopPending(ctx context.Context, runtimeID string) (*McpProbeRequest, error)
-	Complete(ctx context.Context, id string, tools []string) error
+	Complete(ctx context.Context, id string, tools []string, readOnly []string) error
 	Fail(ctx context.Context, id string, code string) error
 }
 
@@ -193,7 +196,8 @@ func cloneMcpProbeRequest(req *McpProbeRequest) *McpProbeRequest {
 		return nil
 	}
 	copy := *req
-	copy.Tools = append([]string(nil), req.Tools...)
+	copy.Tools = slices.Clone(req.Tools)
+	copy.ReadOnlyTools = slices.Clone(req.ReadOnlyTools)
 	if req.RunStartedAt != nil {
 		started := *req.RunStartedAt
 		copy.RunStartedAt = &started
@@ -201,7 +205,7 @@ func cloneMcpProbeRequest(req *McpProbeRequest) *McpProbeRequest {
 	return &copy
 }
 
-func (s *InMemoryMcpProbeStore) Complete(_ context.Context, id string, tools []string) error {
+func (s *InMemoryMcpProbeStore) Complete(_ context.Context, id string, tools []string, readOnly []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if req, ok := s.requests[id]; ok {
@@ -210,7 +214,8 @@ func (s *InMemoryMcpProbeStore) Complete(_ context.Context, id string, tools []s
 			return nil
 		}
 		req.Status = McpProbeCompleted
-		req.Tools = append([]string(nil), tools...)
+		req.Tools = slices.Clone(tools)
+		req.ReadOnlyTools = slices.Clone(readOnly)
 		req.ErrorCode = ""
 		req.UpdatedAt = time.Now()
 	}
@@ -252,32 +257,28 @@ func (h *Handler) ProbeAssignedWorkspaceMcp(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "tool discovery requires a Streamable HTTP server")
 		return
 	}
-	var body struct {
-		RuntimeID string `json:"runtime_id"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if !agent.RuntimeID.Valid {
+		writeError(w, http.StatusConflict, "the agent has no assigned runtime")
 		return
 	}
-	runtimeID, ok := parseUUIDOrBadRequest(w, body.RuntimeID, "runtime_id")
-	if !ok {
+	rt, err := h.getAgentRuntime(r.Context(), obsmetrics.RuntimeLookupSourceRuntimeAPI, agent.RuntimeID)
+	if err != nil || rt.WorkspaceID != agent.WorkspaceID || !service.RuntimeAllowsUser(rt, agent.OwnerID) {
+		writeError(w, http.StatusNotFound, "the agent's runtime is unavailable")
 		return
 	}
-	callerID := requestUserID(r)
-	rt, err := h.getAgentRuntime(r.Context(), obsmetrics.RuntimeLookupSourceRuntimeAPI, runtimeID)
-	if err != nil || rt.WorkspaceID != agent.WorkspaceID || !runtimeOwnedBy(rt, callerID) {
-		writeError(w, http.StatusNotFound, "runtime not found")
+	if rt.Status != "online" {
+		writeError(w, http.StatusServiceUnavailable, "the agent's runtime is offline")
 		return
 	}
-	if rt.Status != "online" || !workspaceMCPRuntimeSupported(rt) ||
+	if !workspaceMCPRuntimeSupported(rt) ||
 		!runtimeHasCapability(rt.Metadata, protocol.WorkspaceMCPToolsCapability(rt.Provider)) {
-		writeError(w, http.StatusConflict, "select an online local Codex or Hermes runtime with an updated Multica daemon")
+		writeError(w, http.StatusConflict, "tool discovery requires a local Codex or Hermes runtime with an updated Multica daemon")
 		return
 	}
 	req, err := h.McpProbeStore.Create(r.Context(), McpProbeCreate{
 		WorkspaceID:   uuidToString(agent.WorkspaceID),
 		AgentID:       uuidToString(agent.ID),
-		RequesterID:   callerID,
+		RequesterID:   requestUserID(r),
 		ServerID:      uuidToString(server.ID),
 		ConfigVersion: server.UpdatedAt.Time,
 		RuntimeID:     uuidToString(rt.ID),
@@ -305,8 +306,8 @@ func (h *Handler) GetAssignedWorkspaceMcpProbe(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "probe not found")
 		return
 	}
-	if !server.UpdatedAt.Time.Equal(req.ConfigVersion) {
-		writeError(w, http.StatusConflict, "MCP configuration changed; reload the tool list")
+	if uuidToString(agent.RuntimeID) != req.RuntimeID || !server.UpdatedAt.Time.Equal(req.ConfigVersion) {
+		writeError(w, http.StatusConflict, "MCP configuration or agent runtime changed; reload the tool list")
 		return
 	}
 	writeMcpProbeResult(w, req)
@@ -317,8 +318,8 @@ func writeMcpProbeResult(w http.ResponseWriter, req *McpProbeRequest) {
 		ID        string         `json:"id"`
 		Status    McpProbeStatus `json:"status"`
 		ErrorCode string         `json:"error_code,omitempty"`
-		Tools     []string       `json:"tools"`
-	}{req.ID, req.Status, req.ErrorCode, append([]string{}, req.Tools...)})
+		protocol.WorkspaceMCPToolList
+	}{req.ID, req.Status, req.ErrorCode, protocol.WorkspaceMCPToolList{Tools: append([]string{}, req.Tools...), ReadOnlyTools: req.ReadOnlyTools}})
 }
 
 // requireDaemonMcpProbeCaller allows mdt_ and PAT (how daemons auth today)
@@ -370,8 +371,13 @@ func (h *Handler) GetDaemonMcpProbeJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "probe is not running")
 		return
 	}
-	if req.WorkspaceID != uuidToString(rt.WorkspaceID) || !runtimeOwnedBy(rt, req.RequesterID) || !workspaceMCPRuntimeSupported(rt) {
+	if req.WorkspaceID != uuidToString(rt.WorkspaceID) || !workspaceMCPRuntimeSupported(rt) {
 		writeError(w, http.StatusNotFound, "probe not found")
+		return
+	}
+	agent, err := h.Queries.GetAgent(r.Context(), parseUUID(req.AgentID))
+	if err != nil || agent.RuntimeID != rt.ID || !service.RuntimeAllowsUser(rt, agent.OwnerID) {
+		writeError(w, http.StatusConflict, "agent runtime changed; reload the tool list")
 		return
 	}
 	server, err := h.Queries.GetAssignedWorkspaceMcpServer(r.Context(), db.GetAssignedWorkspaceMcpServerParams{
@@ -413,7 +419,7 @@ func (h *Handler) ReportDaemonMcpProbeResult(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to load request")
 		return
 	}
-	if existing == nil || existing.RuntimeID != runtimeID || !runtimeOwnedBy(rt, existing.RequesterID) || existing.WorkspaceID != uuidToString(rt.WorkspaceID) {
+	if existing == nil || existing.RuntimeID != runtimeID || existing.WorkspaceID != uuidToString(rt.WorkspaceID) {
 		writeError(w, http.StatusNotFound, "request not found")
 		return
 	}
@@ -433,7 +439,10 @@ func (h *Handler) ReportDaemonMcpProbeResult(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if body.Status == "completed" {
-		if err := h.McpProbeStore.Complete(r.Context(), requestID, sanitizeMcpProbeTools(body.Tools)); err != nil {
+		tools := sanitizeMcpProbeTools(body.Tools)
+		readOnly := sanitizeMcpProbeTools(body.ReadOnlyTools)
+		readOnly = slices.DeleteFunc(readOnly, func(name string) bool { return !slices.Contains(tools, name) })
+		if err := h.McpProbeStore.Complete(r.Context(), requestID, tools, readOnly); err != nil {
 			slog.Error("McpProbeStore Complete failed", "error", err, "request_id", requestID)
 			writeError(w, http.StatusInternalServerError, "failed to persist completion")
 			return

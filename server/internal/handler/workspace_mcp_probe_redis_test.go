@@ -40,7 +40,7 @@ func TestRedisMcpProbeStore_ClaimsOnceAcrossNodes(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("claims=%d, want 1", count)
 	}
-	if err := nodeB.Complete(ctx, created.ID, []string{"search"}); err != nil {
+	if err := nodeB.Complete(ctx, created.ID, []string{"search"}, []string{"search"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := nodeA.Fail(ctx, created.ID, "handshake"); err != nil {
@@ -50,7 +50,7 @@ func TestRedisMcpProbeStore_ClaimsOnceAcrossNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != McpProbeCompleted || len(result.Tools) != 1 || result.Tools[0] != "search" {
+	if result.Status != McpProbeCompleted || len(result.Tools) != 1 || result.Tools[0] != "search" || len(result.ReadOnlyTools) != 1 || result.ReadOnlyTools[0] != "search" {
 		t.Fatalf("late report overwrote result: %+v", result)
 	}
 }
@@ -71,7 +71,7 @@ func TestRedisMcpProbeStore_TimeoutRemovesPendingJob(t *testing.T) {
 	if err := rdb.Set(ctx, mcpProbeKey(created.ID), raw, mcpProbeStoreRetention).Err(); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Complete(ctx, created.ID, []string{"late"}); err != nil {
+	if err := store.Complete(ctx, created.ID, []string{"late"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	result, err := store.Get(ctx, created.ID)
@@ -98,7 +98,7 @@ func TestRedisMcpProbeStore_WithoutMultiPermission(t *testing.T) {
 	if _, err := store.PopPending(ctx, "rt"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Complete(ctx, created.ID, []string{"search"}); err != nil {
+	if err := store.Complete(ctx, created.ID, []string{"search"}, []string{"search"}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := store.Get(ctx, created.ID)

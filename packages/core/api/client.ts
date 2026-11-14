@@ -527,6 +527,7 @@ import {
   RuntimeModelListRequestSchema,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
   SkillSchema,
+  SkillHubImportSchema,
   EMPTY_SKILL,
   SkillSummaryListSchema,
   EMPTY_SKILL_SUMMARY_LIST,
@@ -3498,10 +3499,10 @@ export class ApiClient {
     });
   }
 
-  async startAgentMcpProbe(agentId: string, serverId: string, runtimeId: string) {
+  async startAgentMcpProbe(agentId: string, serverId: string) {
     const raw = await this.fetch<unknown>(
       `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/probe`,
-      { method: "POST", body: JSON.stringify({ runtime_id: runtimeId }) },
+      { method: "POST" },
     );
     return parseWithFallback<z.infer<typeof WorkspaceMcpProbeSchema> | null>(raw, WorkspaceMcpProbeSchema, null, {
       endpoint: "POST /api/agents/{id}/mcp-servers/{serverId}/probe",
@@ -3908,6 +3909,19 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async importSkillHub(url: string) {
+    const endpoint = "/api/skills/import/harness-hub";
+    const raw = await this.fetch<unknown>(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    const result = parseWithFallback(raw, SkillHubImportSchema.nullable(), null, {
+      endpoint: `POST ${endpoint}`,
+    });
+    if (!result) throw new Error("Invalid Harness Hub import response");
+    return result;
   }
 
   /**

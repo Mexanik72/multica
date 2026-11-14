@@ -123,7 +123,11 @@ func TestAssignedWorkspaceMCPProbeKeepsConfigOnDaemonPath(t *testing.T) {
 	})
 	agentID := dbfx.Agent(t, "probe-agent", runtimeID)
 	addAgentMcpServerForTest(t, agentID, serverID)
-	start := withURLParams(newRequest(http.MethodPost, "/", map[string]string{"runtime_id": runtimeID}),
+	otherRuntimeID := dbfx.Runtime(t, "other-compatible-runtime", testutil.Cols{
+		"runtime_mode": "local", "provider": "hermes",
+	})
+	// A stale client-supplied runtime cannot override the saved binding.
+	start := withURLParams(newRequest(http.MethodPost, "/", map[string]string{"runtime_id": otherRuntimeID}),
 		"id", agentID, "serverId", serverID)
 	var pending struct{ ID, Status string }
 	response := testutil.Call(t, testHandler.ProbeAssignedWorkspaceMcp, start).Want(http.StatusOK)
@@ -148,19 +152,24 @@ func TestAssignedWorkspaceMCPProbeKeepsConfigOnDaemonPath(t *testing.T) {
 		t.Fatal("the authenticated daemon must receive the stored credential")
 	}
 	report := daemonRequest(http.MethodPost, map[string]any{
-		"status": "completed", "tools": []string{"search_issues"}, "error": workspaceMcpTestSecret,
+		"status": "completed", "tools": []string{"search_issues", "create_issue"},
+		"read_only_tools": []string{"search_issues", "not_in_list"}, "error": workspaceMcpTestSecret,
 	})
 	testutil.Call(t, testHandler.ReportDaemonMcpProbeResult, report).Want(http.StatusOK)
 
 	poll := withURLParams(newRequest(http.MethodGet, "/", nil), "id", agentID, "serverId", serverID, "requestId", pending.ID)
 	response = testutil.Call(t, testHandler.GetAssignedWorkspaceMcpProbe, poll).Want(http.StatusOK)
 	var result struct {
-		Status string
-		Tools  []string
+		Status        string
+		Tools         []string
+		ReadOnlyTools []string `json:"read_only_tools"`
 	}
 	response.JSON(&result)
-	if result.Status != "completed" || !slices.Equal(result.Tools, []string{"search_issues"}) ||
+	if result.Status != "completed" || !slices.Equal(result.Tools, []string{"search_issues", "create_issue"}) || !slices.Equal(result.ReadOnlyTools, []string{"search_issues"}) ||
 		strings.Contains(response.Body.String(), workspaceMcpTestSecret) {
 		t.Fatal("expected a completed tool-names-only result")
 	}
+	dbfx.Exec(t, "UPDATE agent SET runtime_id = $1 WHERE id = $2", otherRuntimeID, agentID)
+	testutil.Call(t, testHandler.GetAssignedWorkspaceMcpProbe, poll).Want(http.StatusConflict)
+
 }

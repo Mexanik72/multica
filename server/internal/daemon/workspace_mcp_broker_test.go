@@ -123,7 +123,7 @@ func TestWorkspaceMCPProbeListsPagesAndClosesSession(t *testing.T) {
 			if strings.Contains(string(req.Params), "next-page") {
 				result = `{"tools":[{"name":"create_issue"}]}`
 			} else {
-				result = `{"tools":[{"name":"search_issues","description":"description stays upstream"}],"nextCursor":"next-page"}`
+				result = `{"tools":[{"name":"search_issues","annotations":{"readOnlyHint":true},"description":"description stays upstream"}],"nextCursor":"next-page"}`
 			}
 		default:
 			t.Errorf("unexpected method %s", req.Method)
@@ -137,7 +137,7 @@ func TestWorkspaceMCPProbeListsPagesAndClosesSession(t *testing.T) {
 		"url": server.URL, "headers": map[string]string{"Authorization": "Bearer test-credential"},
 	})
 	tools, code := probeWorkspaceMCP(t.Context(), raw)
-	if code != "" || !reflect.DeepEqual(tools, []string{"search_issues", "create_issue"}) || !closed.Load() {
+	if code != "" || !reflect.DeepEqual(tools.Tools, []string{"search_issues", "create_issue"}) || !reflect.DeepEqual(tools.ReadOnlyTools, []string{"search_issues"}) || !closed.Load() {
 		t.Fatalf("tools=%v error=%s session closed=%v", tools, code, closed.Load())
 	}
 }

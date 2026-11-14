@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -192,7 +193,7 @@ func (s *RedisMcpProbeStore) PopPending(ctx context.Context, runtimeID string) (
 	return nil, nil
 }
 
-func (s *RedisMcpProbeStore) Complete(ctx context.Context, id string, tools []string) error {
+func (s *RedisMcpProbeStore) Complete(ctx context.Context, id string, tools []string, readOnly []string) error {
 	_, err := s.updateRequest(ctx, id, func(req *McpProbeRequest) bool {
 		if applyMcpProbeTimeout(req, time.Now()) {
 			return true
@@ -201,7 +202,8 @@ func (s *RedisMcpProbeStore) Complete(ctx context.Context, id string, tools []st
 			return false
 		}
 		req.Status = McpProbeCompleted
-		req.Tools = append([]string(nil), tools...)
+		req.Tools = slices.Clone(tools)
+		req.ReadOnlyTools = slices.Clone(readOnly)
 		req.ErrorCode = ""
 		req.UpdatedAt = time.Now()
 		return true

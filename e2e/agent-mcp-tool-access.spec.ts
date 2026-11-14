@@ -46,26 +46,28 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
 
     let probes = 0;
     await page.route(`**/mcp-servers/${serverId}/probe`, (route) => {
-      expect(route.request().postDataJSON()).toEqual({ runtime_id: runtimeId });
+      expect(route.request().postData()).toBeNull();
       probes++;
       return route.fulfill({ json: { id: String(probes), status: "pending", tools: [] } });
     });
     await page.route(`**/mcp-servers/${serverId}/probes/*`, (route) => route.fulfill({
       json: probes === 1
         ? { id: "1", status: "failed", error_code: "handshake", tools: [] }
-        : { id: "2", status: "completed", tools: ["search_issues", "create_issue"] },
+        : { id: "2", status: "completed", tools: ["search_issues", "create_issue"], read_only_tools: ["search_issues"] },
     }));
 
     await page.goto(`/${workspace.slug}/agents/${agentId}?view=mcp_config`, { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: "Tool access", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Tool access for workspace-issues" });
-    await expect(dialog.getByRole("combobox", { name: "Runtime for discovery" })).toHaveValue(runtimeId);
+    await expect(dialog.getByRole("combobox")).toHaveCount(0);
     await dialog.getByRole("button", { name: "Load tools" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Could not load the tool list");
     await dialog.getByRole("button", { name: "Retry discovery" }).click();
-    await expect(dialog.getByRole("checkbox", { name: "search_issues" })).toBeChecked();
+    await expect(dialog.getByRole("group", { name: "Read", exact: true }).getByRole("checkbox", { name: "search_issues" })).toBeChecked();
     await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
-    await expect(dialog.getByRole("checkbox", { name: "create_issue" })).not.toBeChecked();
+    const writeTool = dialog.getByRole("group", { name: "Read / Write", exact: true }).getByRole("checkbox", { name: "create_issue" });
+    await expect(writeTool).toBeVisible();
+    await expect(writeTool).not.toBeChecked();
     await expect(dialog.getByText("Unavailable on this runtime")).toBeVisible();
     await info.attach("MCP tool access", {
       body: await page.screenshot({ animations: "disabled" }), contentType: "image/png",

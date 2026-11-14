@@ -2921,14 +2921,17 @@ describe("ApiClient workspace MCP servers", () => {
   });
 
   it("keeps only safe discovery fields and rejects a malformed list", async () => {
-    stubJSON({ id: "probe", status: "completed", tools: ["search_issues"], config: { url: "secret" } });
+    stubJSON({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: ["search_issues"], config: { url: "secret" } });
     const client = new ApiClient("https://api.example.test");
     await expect(client.getAgentMcpProbe("a1", "srv-1", "probe"))
-      .resolves.toEqual({ id: "probe", status: "completed", tools: ["search_issues"] });
+      .resolves.toEqual({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: ["search_issues"] });
     stubJSON({ id: "probe", status: "completed", tools: { secret: true } });
     await expect(client.getAgentMcpProbe("a1", "srv-1", "probe")).resolves.toBeNull();
+    stubJSON({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: [true] });
+    await expect(client.getAgentMcpProbe("a1", "srv-1", "probe"))
+      .resolves.toMatchObject({ tools: ["search_issues"] });
     stubJSON({ id: 123, status: "pending" });
-    await expect(client.startAgentMcpProbe("a1", "srv-1", "codex")).resolves.toBeNull();
+    await expect(client.startAgentMcpProbe("a1", "srv-1")).resolves.toBeNull();
   });
 
   it("assigns and un-assigns a server on the agent routes", async () => {

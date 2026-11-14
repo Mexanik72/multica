@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "@multica/core/api";
-import { runtimeDisplayLabel, runtimeListOptions } from "@multica/core/runtimes";
+import { runtimeDisplayLabel } from "@multica/core/runtimes";
 import type { AgentRuntime, WorkspaceMcpServer } from "@multica/core/types";
 import { useSetAgentMcpToolAccess, useStartAgentMcpProbe } from "@multica/core/workspace/mutations";
 import { Button } from "@multica/ui/components/ui/button";
@@ -52,7 +52,7 @@ export function McpToolAccessDialog(props: {
         {t(($) => $.tab_body.mcp_config.tool_access.action)}
       </DialogTrigger>
       <DialogContent>
-        {open && <McpToolAccessForm {...props} save={save} onSaved={() => setOpen(false)} />}
+        {open && <McpToolAccessForm key={props.runtime?.id} {...props} save={save} onSaved={() => setOpen(false)} />}
       </DialogContent>
     </Dialog>
   );
@@ -73,16 +73,8 @@ function McpToolAccessForm({
   const [mode, setMode] = useState(server.allowed_tools == null ? "all" : "selected");
   const [selected, setSelected] = useState(() => new Set(server.allowed_tools ?? []));
   const [savedNames] = useState(() => server.allowed_tools ?? []);
-  const [runtimeChoice, setRuntimeChoice] = useState("");
   const [saveError, setSaveError] = useState(false);
   const probe = useStartAgentMcpProbe(agentId, server.id);
-  const runtimes = useQuery(runtimeListOptions(workspaceId, "me"));
-  const eligible = (runtimes.data ?? []).filter(
-    (candidate) => candidate.status === "online" && supportsMcpToolAccess(candidate),
-  );
-  const runtimeId = eligible.some((candidate) => candidate.id === runtimeChoice)
-    ? runtimeChoice
-    : eligible.find((candidate) => candidate.id === runtime?.id)?.id ?? eligible[0]?.id ?? "";
   const requestId = probe.data?.id;
   const result = useQuery({
     queryKey: ["workspaces", workspaceId, "agents", agentId, "mcp-probes", server.id, requestId],
@@ -103,7 +95,14 @@ function McpToolAccessForm({
     result.isError || (result.isSuccess && !result.data) ||
     probeStatus === "failed" || probeStatus === "timeout";
   const discovered = probeStatus === "completed" ? result.data?.tools : undefined;
-  const options = Array.from(new Set([...(discovered ?? []), ...selected, ...savedNames])).sort();
+  const available = new Set(discovered);
+  const readOnly = new Set(result.data?.read_only_tools);
+  const options = Array.from(new Set([...available, ...selected, ...savedNames])).sort();
+  const groups = [
+    { label: t(($) => $.tab_body.mcp_config.tool_access.read), names: options.filter((name) => available.has(name) && readOnly.has(name)) },
+    { label: t(($) => $.tab_body.mcp_config.tool_access.read_write), names: options.filter((name) => available.has(name) && !readOnly.has(name)) },
+    { label: t(($) => $.tab_body.mcp_config.tool_access.saved), names: options.filter((name) => !available.has(name)) },
+  ];
   const runtimeSupported = supportsMcpToolAccess(runtime);
   const canSelect = server.transport === "http" && runtimeSupported;
 
@@ -146,37 +145,14 @@ function McpToolAccessForm({
         </p>}
         {mode === "selected" && (
           <div className="space-y-3">
-            {server.transport === "http" && (
-              <>
-                <label className="block space-y-1.5 text-label">
-                  <span>{t(($) => $.tab_body.mcp_config.tool_access.discovery_runtime)}</span>
-                  <select
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-body focus-visible:outline-ring"
-                    value={runtimeId}
-                    onChange={(event) => {
-                      setRuntimeChoice(event.target.value);
-                      probe.reset();
-                    }}
-                    disabled={eligible.length === 0 || loading}
-                  >
-                    {eligible.length === 0 && <option value="">
-                      {runtimes.isPending
-                        ? t(($) => $.tab_body.mcp_config.tool_access.loading)
-                        : t(($) => $.tab_body.mcp_config.tool_access.no_runtime)}
-                    </option>}
-                    {eligible.map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>{runtimeDisplayLabel(candidate)}</option>
-                    ))}
-                  </select>
-                </label>
-                {runtimes.isError && (
-                  <Button variant="outline" size="sm" onClick={() => void runtimes.refetch()}>
-                    {t(($) => $.tab_body.mcp_config.tool_access.retry_runtimes)}
-                  </Button>
-                )}
+            {runtime && server.transport === "http" && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="min-w-0 break-words text-caption text-muted-foreground">
+                  {t(($) => $.tab_body.mcp_config.tool_access.agent_runtime, { runtime: runtimeDisplayLabel(runtime) })}
+                </p>
                 <Button
-                  variant="outline" size="sm" disabled={!runtimeId || loading} aria-busy={loading}
-                  onClick={() => probe.mutate(runtimeId)}
+                  variant="outline" size="sm" disabled={!canSelect || loading} aria-busy={loading}
+                  onClick={() => probe.mutate()}
                 >
                   {loading && <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                   {discoveryFailed
@@ -185,13 +161,13 @@ function McpToolAccessForm({
                       ? t(($) => $.tab_body.mcp_config.tool_access.refresh)
                       : t(($) => $.tab_body.mcp_config.tool_access.load)}
                 </Button>
-              </>
+              </div>
             )}
             {discoveryFailed && <p role="alert" className="text-caption text-destructive">
               {result.data?.error_code === "unauthorized"
                 ? t(($) => $.tab_body.mcp_config.tool_access.unauthorized)
-                : probe.error instanceof ApiError && probe.error.status === 409
-                  ? t(($) => $.tab_body.mcp_config.tool_access.requires_runtime)
+                : probe.error instanceof ApiError && probe.error.status === 503
+                  ? t(($) => $.tab_body.mcp_config.tool_access.runtime_offline)
                   : t(($) => $.tab_body.mcp_config.tool_access.load_failed)}
             </p>}
             {discovered?.length === 0 && (
@@ -200,28 +176,31 @@ function McpToolAccessForm({
               </p>
             )}
             {options.length > 0 && (
-              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-                {options.map((name) => (
-                  <li key={name}>
-                    <label className="flex items-center gap-2 px-2 py-1.5">
-                      <Checkbox checked={selected.has(name)} disabled={save.isPending} onCheckedChange={(checked) => {
-                        setSelected((previous) => {
-                          const next = new Set(previous);
-                          if (checked) next.add(name);
-                          else next.delete(name);
-                          return next;
-                        });
-                      }} />
-                      <span className="min-w-0 break-all font-mono text-caption">{name}</span>
-                      {discovered && !discovered.includes(name) && (
-                        <span className="ml-auto text-caption text-muted-foreground">
-                          {t(($) => $.tab_body.mcp_config.tool_access.missing)}
-                        </span>
-                      )}
-                    </label>
-                  </li>
+              <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border p-2">
+                {groups.filter(({ names }) => names.length > 0).map(({ label, names }) => (
+                  <fieldset key={label} className="space-y-1">
+                    <legend className="px-2 text-label font-medium">{label}</legend>
+                    {names.map((name) => (
+                      <label key={name} className="flex items-center gap-2 px-2 py-1.5">
+                        <Checkbox checked={selected.has(name)} disabled={save.isPending} onCheckedChange={(checked) => {
+                          setSelected((previous) => {
+                            const next = new Set(previous);
+                            if (checked) next.add(name);
+                            else next.delete(name);
+                            return next;
+                          });
+                        }} />
+                        <span className="min-w-0 break-all font-mono text-caption">{name}</span>
+                        {discovered && !available.has(name) && (
+                          <span className="ml-auto text-caption text-muted-foreground">
+                            {t(($) => $.tab_body.mcp_config.tool_access.missing)}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </fieldset>
                 ))}
-              </ul>
+              </div>
             )}
             {selected.size === 0 && <p className="text-caption text-muted-foreground">
               {t(($) => $.tab_body.mcp_config.tool_access.deny_all)}

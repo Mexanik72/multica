@@ -44,3 +44,9 @@ const (
 	McpProbeCodeHandshake            = "handshake"
 	McpProbeCodeInternal             = "internal"
 )
+
+// WorkspaceMCPToolList contains tool names and the subset explicitly annotated read-only.
+type WorkspaceMCPToolList struct {
+	Tools         []string `json:"tools"`
+	ReadOnlyTools []string `json:"read_only_tools,omitempty"`
+}

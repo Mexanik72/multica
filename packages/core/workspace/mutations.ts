@@ -172,7 +172,7 @@ export function useSetAgentMcpToolAccess(agentId: string) {
 
 export function useStartAgentMcpProbe(agentId: string, serverId: string) {
   return useMutation({
-    mutationFn: (runtimeId: string) => api.startAgentMcpProbe(agentId, serverId, runtimeId),
+    mutationFn: () => api.startAgentMcpProbe(agentId, serverId),
   });
 }
 

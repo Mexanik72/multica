@@ -14,9 +14,9 @@ import (
 func (d *Daemon) handleWorkspaceMCPProbe(ctx context.Context, runtimeID, requestID string) {
 	jobPath := fmt.Sprintf("/api/daemon/runtimes/%s/mcp-probes/%s", runtimeID, requestID)
 	outcome := struct {
-		Status    string   `json:"status"`
-		ErrorCode string   `json:"error_code,omitempty"`
-		Tools     []string `json:"tools"`
+		Status    string `json:"status"`
+		ErrorCode string `json:"error_code,omitempty"`
+		protocol.WorkspaceMCPToolList
 	}{Status: "failed", ErrorCode: protocol.McpProbeCodeInternal}
 
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -27,7 +27,7 @@ func (d *Daemon) handleWorkspaceMCPProbe(ctx context.Context, runtimeID, request
 	if err := d.client.getJSON(probeCtx, jobPath, &job); err == nil {
 		rt := d.findRuntime(runtimeID)
 		if rt != nil && protocol.WorkspaceMCPToolsCapability(rt.Provider) != "" && rt.ProfileID == "" {
-			outcome.Tools, outcome.ErrorCode = probeWorkspaceMCP(probeCtx, job.Config)
+			outcome.WorkspaceMCPToolList, outcome.ErrorCode = probeWorkspaceMCP(probeCtx, job.Config)
 			if outcome.ErrorCode == "" {
 				outcome.Status = "completed"
 			}
@@ -42,10 +42,10 @@ func (d *Daemon) handleWorkspaceMCPProbe(ctx context.Context, runtimeID, request
 
 // Uses the on-demand initialize/list sequence from upstream #9290, with
 // the same endpoint parsing and HTTP transport as the task broker.
-func probeWorkspaceMCP(ctx context.Context, raw json.RawMessage) ([]string, string) {
+func probeWorkspaceMCP(ctx context.Context, raw json.RawMessage) (protocol.WorkspaceMCPToolList, string) {
 	endpoint, headers, err := workspaceMCPEndpoint(raw)
 	if err != nil {
-		return nil, protocol.McpProbeCodeUnsupportedTransport
+		return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeUnsupportedTransport
 	}
 	client := workspaceMCPClient()
 	defer client.CloseIdleConnections()
@@ -105,51 +105,66 @@ func probeWorkspaceMCP(ctx context.Context, raw json.RawMessage) ([]string, stri
 		"clientInfo": map[string]string{"name": "multica-probe", "version": "1"},
 	}, false)
 	if code != "" {
-		return nil, code
+		return protocol.WorkspaceMCPToolList{}, code
 	}
 	var initResult struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	if json.Unmarshal(initialized, &initResult) != nil {
-		return nil, protocol.McpProbeCodeHandshake
+		return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeHandshake
 	}
 	switch initResult.ProtocolVersion {
 	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25":
 		version = initResult.ProtocolVersion
 	default:
-		return nil, protocol.McpProbeCodeHandshake
+		return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeHandshake
 	}
 	if _, code := call("notifications/initialized", map[string]any{}, true); code != "" {
-		return nil, code
+		return protocol.WorkspaceMCPToolList{}, code
 	}
 	names := make([]string, 0)
+	readOnly := make(map[string]bool)
 	params := map[string]string{}
 	seenCursors := map[string]bool{}
 	for {
 		raw, code := call("tools/list", params, false)
 		if code != "" {
-			return nil, code
+			return protocol.WorkspaceMCPToolList{}, code
 		}
 		var page struct {
 			Tools []struct {
-				Name string `json:"name"`
+				Name        string `json:"name"`
+				Annotations struct {
+					ReadOnlyHint json.RawMessage `json:"readOnlyHint"`
+				} `json:"annotations"`
 			} `json:"tools"`
 			NextCursor string `json:"nextCursor"`
 		}
 		if json.Unmarshal(raw, &page) != nil || page.Tools == nil {
-			return nil, protocol.McpProbeCodeHandshake
+			return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeHandshake
 		}
 		for _, tool := range page.Tools {
 			if !protocol.WorkspaceMCPToolName.MatchString(tool.Name) {
-				return nil, protocol.McpProbeCodeHandshake
+				return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeHandshake
 			}
+			// A duplicate with missing or contradictory hints is classified as writable.
+			hint := string(tool.Annotations.ReadOnlyHint) == "true"
+			previous, seen := readOnly[tool.Name]
+			readOnly[tool.Name] = hint && (!seen || previous)
 			names = append(names, tool.Name)
 		}
 		if len(names) > protocol.MaxWorkspaceMCPTools || len(seenCursors) >= 100 || seenCursors[page.NextCursor] {
-			return nil, protocol.McpProbeCodeHandshake
+			return protocol.WorkspaceMCPToolList{}, protocol.McpProbeCodeHandshake
 		}
 		if page.NextCursor == "" {
-			return names, ""
+			result := protocol.WorkspaceMCPToolList{Tools: names}
+			for _, name := range names {
+				if readOnly[name] {
+					result.ReadOnlyTools = append(result.ReadOnlyTools, name)
+					delete(readOnly, name)
+				}
+			}
+			return result, ""
 		}
 		seenCursors[page.NextCursor] = true
 		params["cursor"] = page.NextCursor

@@ -1072,6 +1072,7 @@ export interface AppConfigResponse {
    * /api/theme-store. Off when the operator turned it off, and absent on older
    * servers, so the app shows no Browse entry and makes no store requests. */
   theme_store_enabled?: boolean;
+  skill_hub_url?: string;
   server_version?: string;
 }
 
@@ -1361,6 +1362,7 @@ export const AppConfigSchema = z.object({
   issue_create_properties_supported: BooleanWithDefaultSchema(false),
   comment_delete_keep_replies_supported: BooleanWithDefaultSchema(false),
   theme_store_enabled: BooleanWithDefaultSchema(false),
+  skill_hub_url: z.url({ protocol: /^https$/ }).optional().catch(undefined),
   server_version: OptionalStringSchema,
 }).loose();
 
@@ -4037,6 +4039,14 @@ export const EMPTY_SKILL: Skill = {
   files: [],
 };
 
+export const SkillHubImportSchema = z.union([
+  z.object({
+    package_name: z.string().min(1),
+    skills: z.array(z.object({ id: z.string().min(1), name: z.string().min(1) })).min(1),
+  }),
+  z.object({ skill: SkillSchema.extend({ id: z.string().min(1) }) }),
+]);
+
 export const SkillSummaryListSchema = z.array(SkillSummarySchema).default([]);
 
 const SKILL_VERSION_SOURCES = [
@@ -4140,6 +4150,7 @@ export const WorkspaceMcpProbeSchema = z.object({
   status: z.enum(["pending", "running", "completed", "failed", "timeout"]),
   error_code: z.string().optional().catch(undefined),
   tools: McpToolNamesSchema,
+  read_only_tools: McpToolNamesSchema.optional().catch(undefined),
 });
 
 export const WorkspaceMcpServerSchema = z.object({

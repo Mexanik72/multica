@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@multica/ui/components/ui/dialog";
+import { Switch } from "@multica/ui/components/ui/switch";
 import { Loader2 } from "@multica/ui/icons";
 import { useT } from "../../../i18n";
 
@@ -70,6 +71,7 @@ function McpToolAccessForm({
 }) {
   const { t } = useT("agents");
   const modeGroup = useId();
+  const toolGroupId = useId();
   const [mode, setMode] = useState(server.allowed_tools == null ? "all" : "selected");
   const [selected, setSelected] = useState(() => new Set(server.allowed_tools ?? []));
   const [savedNames] = useState(() => server.allowed_tools ?? []);
@@ -99,12 +101,23 @@ function McpToolAccessForm({
   const readOnly = new Set(result.data?.read_only_tools);
   const options = Array.from(new Set([...available, ...selected, ...savedNames])).sort();
   const groups = [
-    { label: t(($) => $.tab_body.mcp_config.tool_access.read), showCount: true, names: options.filter((name) => available.has(name) && readOnly.has(name)) },
-    { label: t(($) => $.tab_body.mcp_config.tool_access.read_write), names: options.filter((name) => available.has(name) && !readOnly.has(name)) },
-    { label: t(($) => $.tab_body.mcp_config.tool_access.saved), names: options.filter((name) => !available.has(name)) },
+    { id: `${toolGroupId}-read`, label: t(($) => $.tab_body.mcp_config.tool_access.read), showCount: true, bulkToggle: true, names: options.filter((name) => available.has(name) && readOnly.has(name)) },
+    { id: `${toolGroupId}-read-write`, label: t(($) => $.tab_body.mcp_config.tool_access.read_write), bulkToggle: true, names: options.filter((name) => available.has(name) && !readOnly.has(name)) },
+    { id: `${toolGroupId}-saved`, label: t(($) => $.tab_body.mcp_config.tool_access.saved), names: options.filter((name) => !available.has(name)) },
   ];
   const runtimeSupported = supportsMcpToolAccess(runtime);
   const canSelect = server.transport === "http" && runtimeSupported;
+
+  function updateSelection(names: readonly string[], checked: boolean) {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      for (const name of names) {
+        if (checked) next.add(name);
+        else next.delete(name);
+      }
+      return next;
+    });
+  }
 
   async function handleSave() {
     setSaveError(false);
@@ -177,26 +190,32 @@ function McpToolAccessForm({
             )}
             {options.length > 0 && (
               <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border p-2">
-                {groups.filter(({ names }) => names.length > 0).map(({ label, names, showCount }) => (
-                  <fieldset key={label} className="space-y-1">
+                {groups.filter(({ names }) => names.length > 0).map(({ id, label, names, showCount, bulkToggle }) => (
+                  <fieldset key={id} aria-labelledby={id} className="space-y-1">
                     <legend className="px-2 text-label font-medium">
-                      {label}
-                      {showCount && (
-                        <span className="text-muted-foreground tabular-nums">
-                          {" ("}{names.filter((name) => selected.has(name)).length}{")"}
+                      <span className="inline-flex items-center gap-3">
+                        <span id={id}>
+                          {label}
+                          {showCount && (
+                            <span className="text-muted-foreground tabular-nums">
+                              {" ("}{names.filter((name) => selected.has(name)).length}{")"}
+                            </span>
+                          )}
                         </span>
-                      )}
+                        {bulkToggle && (
+                          <Switch
+                            size="sm"
+                            aria-label={label}
+                            checked={names.every((name) => selected.has(name))}
+                            disabled={save.isPending}
+                            onCheckedChange={(checked) => updateSelection(names, checked)}
+                          />
+                        )}
+                      </span>
                     </legend>
                     {names.map((name) => (
                       <label key={name} className="flex items-center gap-2 px-2 py-1.5">
-                        <Checkbox checked={selected.has(name)} disabled={save.isPending} onCheckedChange={(checked) => {
-                          setSelected((previous) => {
-                            const next = new Set(previous);
-                            if (checked) next.add(name);
-                            else next.delete(name);
-                            return next;
-                          });
-                        }} />
+                        <Checkbox checked={selected.has(name)} disabled={save.isPending} onCheckedChange={(checked) => updateSelection([name], checked)} />
                         <span className="min-w-0 break-all font-mono text-caption">{name}</span>
                         {discovered && !available.has(name) && (
                           <span className="ml-auto text-caption text-muted-foreground">

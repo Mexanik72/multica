@@ -53,7 +53,7 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await page.route(`**/mcp-servers/${serverId}/probes/*`, (route) => route.fulfill({
       json: probes === 1
         ? { id: "1", status: "failed", error_code: "handshake", tools: [] }
-        : { id: "2", status: "completed", tools: ["search_issues", "create_issue"], read_only_tools: ["search_issues"] },
+        : { id: "2", status: "completed", tools: ["search_issues", "get_issue", "create_issue", "update_issue"], read_only_tools: ["search_issues", "get_issue"] },
     }));
 
     await page.goto(`/${workspace.slug}/agents/${agentId}?view=mcp_config`, { waitUntil: "domcontentloaded" });
@@ -65,16 +65,33 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await dialog.getByRole("button", { name: "Retry discovery" }).click();
     const readGroup = dialog.getByRole("group", { name: /^Read \(\d+\)$/ });
     const readTool = readGroup.getByRole("checkbox", { name: "search_issues" });
+    const otherReadTool = readGroup.getByRole("checkbox", { name: "get_issue" });
+    const readSwitch = readGroup.getByRole("switch", { name: "Read", exact: true });
     await expect(readTool).toBeChecked();
     await expect(readGroup).toHaveAccessibleName("Read (1)");
-    await readTool.uncheck();
+    await expect(readSwitch).not.toBeChecked();
+    await readSwitch.click();
+    await expect(readSwitch).toBeChecked();
+    await expect(otherReadTool).toBeChecked();
+    await expect(readGroup).toHaveAccessibleName("Read (2)");
+    await readSwitch.click();
     await expect(readGroup).toHaveAccessibleName("Read (0)");
+    await expect(otherReadTool).not.toBeChecked();
+    await expect(readTool).not.toBeChecked();
     await readTool.check();
     await expect(readGroup).toHaveAccessibleName("Read (1)");
-    await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
-    const writeTool = dialog.getByRole("group", { name: "Read / Write", exact: true }).getByRole("checkbox", { name: "create_issue" });
-    await expect(writeTool).toBeVisible();
+    const writeGroup = dialog.getByRole("group", { name: "Read / Write", exact: true });
+    const writeSwitch = writeGroup.getByRole("switch", { name: "Read / Write" });
+    const writeTool = writeGroup.getByRole("checkbox", { name: "create_issue" });
+    const otherWriteTool = writeGroup.getByRole("checkbox", { name: "update_issue" });
+    await writeSwitch.click();
+    await expect(writeTool).toBeChecked();
+    await expect(otherWriteTool).toBeChecked();
+    await expect(readGroup).toHaveAccessibleName("Read (1)");
+    await writeSwitch.click();
     await expect(writeTool).not.toBeChecked();
+    await expect(otherWriteTool).not.toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
     await expect(dialog.getByText("Unavailable on this runtime")).toBeVisible();
     await info.attach("MCP tool access", {
       body: await page.screenshot({ animations: "disabled" }), contentType: "image/png",

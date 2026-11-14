@@ -75,6 +75,12 @@ vi.mock("@multica/core/slack", () => ({
     queryFn: () => Promise.resolve(slackListingRef.current),
   }),
 }));
+vi.mock("@multica/core/mattermost", () => ({
+  mattermostInstallationsOptions: () => ({
+    queryKey: ["mattermost", "installations"],
+    queryFn: () => Promise.resolve({ installations: [], configured: false }),
+  }),
+}));
 vi.mock("@multica/core/telegram", () => ({
   telegramInstallationsOptions: () => ({
     queryKey: ["telegram", "installations"],

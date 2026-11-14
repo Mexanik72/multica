@@ -208,7 +208,7 @@ function AgentChannelRow({
       ? identity?.bot_name
       : connection.channel === "wecom"
         ? connection.installation.bot_name
-        : connection.channel === "telegram" &&
+        : (connection.channel === "telegram" || connection.channel === "mattermost") &&
             connection.installation.bot_username
           ? `@${connection.installation.bot_username}`
           : undefined;

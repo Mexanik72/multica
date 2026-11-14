@@ -346,7 +346,7 @@ export function useSettingsSearchIndex(
         tab: "channels",
         integration: channel,
         title: t(($) => $[channel].section_title),
-        description: t(($) => $[channel].page_description),
+        description: channel === "mattermost" ? undefined : t(($) => $[channel].page_description),
       })),
       {
         tab: "mcp",

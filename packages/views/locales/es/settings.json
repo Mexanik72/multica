@@ -1345,6 +1345,11 @@
     "scan_error_already_connected": "Este agente ya tiene un bot de WeCom conectado. Desconéctalo primero.",
     "scan_error_rate_limited": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo."
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "URL del servidor",
+    "access_token_label": "Token de acceso del bot"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "Chatea con agentes en Telegram o usa /issue para crear una tarea.",

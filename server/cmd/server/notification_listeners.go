@@ -644,6 +644,7 @@ func notifyMentionedMembers(
 ) {
 	// Collect the set of member IDs to notify.
 	recipientIDs := map[string]bool{}
+	directRecipientIDs := map[string]bool{}
 
 	hasAll := false
 	var squadIDs []string
@@ -657,6 +658,7 @@ func notifyMentionedMembers(
 				continue
 			}
 			recipientIDs[m.ID] = true
+			directRecipientIDs[m.ID] = true
 		}
 		if m.Type == "squad" {
 			squadIDs = append(squadIDs, m.ID)
@@ -738,7 +740,7 @@ func notifyMentionedMembers(
 		resp["issue_status"] = issueStatus
 		bus.Publish(events.Event{
 			Type:                protocol.EventInboxNew,
-			DirectMemberMention: byName,
+			DirectMemberMention: directRecipientIDs[id],
 			WorkspaceID:         e.WorkspaceID,
 			ActorType:           e.ActorType,
 			ActorID:             e.ActorID,

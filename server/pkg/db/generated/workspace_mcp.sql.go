@@ -126,6 +126,34 @@ func (q *Queries) DeleteWorkspaceMcpServer(ctx context.Context, arg DeleteWorksp
 	return result.RowsAffected(), nil
 }
 
+const getAssignedWorkspaceMcpServer = `-- name: GetAssignedWorkspaceMcpServer :one
+SELECT s.id, s.workspace_id, s.name, s.config, s.created_by, s.created_at, s.updated_at FROM workspace_mcp_server s
+JOIN agent_mcp_server ams ON ams.server_id = s.id
+JOIN agent a ON a.id = ams.agent_id AND a.workspace_id = s.workspace_id
+WHERE s.id = $1 AND s.workspace_id = $2 AND a.id = $3 AND a.archived_at IS NULL
+`
+
+type GetAssignedWorkspaceMcpServerParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	AgentID     pgtype.UUID `json:"agent_id"`
+}
+
+func (q *Queries) GetAssignedWorkspaceMcpServer(ctx context.Context, arg GetAssignedWorkspaceMcpServerParams) (WorkspaceMcpServer, error) {
+	row := q.db.QueryRow(ctx, getAssignedWorkspaceMcpServer, arg.ID, arg.WorkspaceID, arg.AgentID)
+	var i WorkspaceMcpServer
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Config,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getWorkspaceMcpServer = `-- name: GetWorkspaceMcpServer :one
 SELECT id, workspace_id, name, config, created_by, created_at, updated_at FROM workspace_mcp_server
 WHERE id = $1 AND workspace_id = $2
@@ -152,7 +180,7 @@ func (q *Queries) GetWorkspaceMcpServer(ctx context.Context, arg GetWorkspaceMcp
 }
 
 const listAgentMcpServers = `-- name: ListAgentMcpServers :many
-SELECT s.id, s.workspace_id, s.name, s.config, s.created_at, s.updated_at, ams.enabled
+SELECT s.id, s.workspace_id, s.name, s.config, s.created_at, s.updated_at, ams.enabled, ams.allowed_tools
 FROM workspace_mcp_server s
 JOIN agent_mcp_server ams ON ams.server_id = s.id
 WHERE ams.agent_id = $1
@@ -160,13 +188,14 @@ ORDER BY s.name ASC
 `
 
 type ListAgentMcpServersRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	Name        string             `json:"name"`
-	Config      []byte             `json:"config"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Enabled     bool               `json:"enabled"`
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	Name         string             `json:"name"`
+	Config       []byte             `json:"config"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Enabled      bool               `json:"enabled"`
+	AllowedTools []string           `json:"allowed_tools"`
 }
 
 // Every workspace server bound to this agent, enabled or not, for the agent
@@ -188,6 +217,7 @@ func (q *Queries) ListAgentMcpServers(ctx context.Context, agentID pgtype.UUID) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Enabled,
+			&i.AllowedTools,
 		); err != nil {
 			return nil, err
 		}
@@ -200,7 +230,7 @@ func (q *Queries) ListAgentMcpServers(ctx context.Context, agentID pgtype.UUID) 
 }
 
 const listEnabledAgentMcpServers = `-- name: ListEnabledAgentMcpServers :many
-SELECT s.name, s.config
+SELECT s.name, s.config, ams.allowed_tools
 FROM workspace_mcp_server s
 JOIN agent_mcp_server ams ON ams.server_id = s.id
 WHERE ams.agent_id = $1 AND ams.enabled = TRUE
@@ -208,8 +238,9 @@ ORDER BY s.name ASC
 `
 
 type ListEnabledAgentMcpServersRow struct {
-	Name   string `json:"name"`
-	Config []byte `json:"config"`
+	Name         string   `json:"name"`
+	Config       []byte   `json:"config"`
+	AllowedTools []string `json:"allowed_tools"`
 }
 
 // Claim path: only bound AND enabled servers reach the runtime. An unbound
@@ -224,7 +255,7 @@ func (q *Queries) ListEnabledAgentMcpServers(ctx context.Context, agentID pgtype
 	items := []ListEnabledAgentMcpServersRow{}
 	for rows.Next() {
 		var i ListEnabledAgentMcpServersRow
-		if err := rows.Scan(&i.Name, &i.Config); err != nil {
+		if err := rows.Scan(&i.Name, &i.Config, &i.AllowedTools); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -327,6 +358,26 @@ type RemoveAgentMcpServerParams struct {
 
 func (q *Queries) RemoveAgentMcpServer(ctx context.Context, arg RemoveAgentMcpServerParams) (int64, error) {
 	result, err := q.db.Exec(ctx, removeAgentMcpServer, arg.AgentID, arg.ServerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setAgentMcpAllowedTools = `-- name: SetAgentMcpAllowedTools :execrows
+UPDATE agent_mcp_server
+SET allowed_tools = $3::text[]
+WHERE agent_id = $1 AND server_id = $2
+`
+
+type SetAgentMcpAllowedToolsParams struct {
+	AgentID      pgtype.UUID `json:"agent_id"`
+	ServerID     pgtype.UUID `json:"server_id"`
+	AllowedTools []string    `json:"allowed_tools"`
+}
+
+func (q *Queries) SetAgentMcpAllowedTools(ctx context.Context, arg SetAgentMcpAllowedToolsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAgentMcpAllowedTools, arg.AgentID, arg.ServerID, arg.AllowedTools)
 	if err != nil {
 		return 0, err
 	}

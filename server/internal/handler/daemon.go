@@ -1594,6 +1594,9 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if len(ack.PendingLocalSkillImports) > 0 {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
 	}
+	if ack.PendingMcpProbe != nil {
+		resp["pending_mcp_probe"] = ack.PendingMcpProbe
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1820,6 +1823,20 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 			slog.Warn("model list HasPending timed out", "runtime_id", runtimeID, "elapsed_ms", m.ProbeModelMs)
 		} else {
 			slog.Warn("model list HasPending failed", "error", probeModelErr, "runtime_id", runtimeID)
+		}
+	}
+
+	if h.McpProbeStore != nil {
+		probeCtx, cancel := context.WithTimeout(ctx, heartbeatHasPendingTimeout)
+		hasProbe, err := h.McpProbeStore.HasPending(probeCtx, runtimeID)
+		cancel()
+		if err == nil && hasProbe {
+			probe, err := h.McpProbeStore.PopPending(ctx, runtimeID)
+			if err != nil {
+				slog.Warn("claim MCP probe", "runtime_id", runtimeID, "error", err)
+			} else if probe != nil {
+				ack.PendingMcpProbe = &protocol.DaemonHeartbeatPendingMcpProbe{ID: probe.ID}
+			}
 		}
 	}
 
@@ -2993,27 +3010,30 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	if agent.McpConfig != nil {
 		mcpConfig = json.RawMessage(agent.McpConfig)
 	}
-	// Fold in the workspace MCP servers this agent has been explicitly
-	// given (GH #6062). Only bound AND enabled servers are read, so a
-	// workspace library entry nobody added reaches nothing. Read on every
-	// claim, exactly like the agent column, so an admin's edit or a toggle
-	// lands on the agent's next task with nothing to restart. Errors —
-	// including a failed read — leave the agent config untouched: a broken
-	// shared entry must never take away servers the agent runs with today.
-	if bound, err := h.Queries.ListEnabledAgentMcpServers(r.Context(), agent.ID); err != nil {
-		slog.Warn("daemon claim: load agent mcp servers failed; using agent mcp_config",
-			"task_id", uuidToString(task.ID), "agent_id", uuidToString(agent.ID), "error", err)
-	} else if len(bound) > 0 {
-		bindings := make([]WorkspaceMcpBinding, 0, len(bound))
-		for _, server := range bound {
-			bindings = append(bindings, WorkspaceMcpBinding{Name: server.Name, Config: json.RawMessage(server.Config)})
+	bound, err := h.Queries.ListEnabledAgentMcpServers(r.Context(), agent.ID)
+	if err != nil {
+		slog.Error("daemon claim: load MCP assignments failed", "task_id", uuidToString(task.ID), "error", err)
+		return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+			outcome: "error_mcp_load", status: http.StatusInternalServerError, message: "failed to load MCP assignments",
 		}
-		if resolved, err := ResolveAgentMcpConfig(bindings, mcpConfig); err != nil {
-			slog.Warn("daemon claim: resolve agent mcp servers failed; falling back to agent mcp_config",
-				"task_id", uuidToString(task.ID), "agent_id", uuidToString(agent.ID), "error", err)
-		} else {
-			mcpConfig = resolved
-		}
+	}
+	var overlayForNameCheck json.RawMessage
+	if composioMCPEnabled {
+		overlayForNameCheck = task.RuntimeMcpOverlay
+	}
+	bindings, restricted, err := splitWorkspaceMCPBindings(bound, runtime,
+		requestHasClientCapability(r, protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1), mcpConfig, overlayForNameCheck)
+	if err != nil {
+		return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
+			r.Context(), task, err.Error(), taskfailure.ReasonAgentMissingConfig,
+			"error_mcp_tool_access", http.StatusConflict, err.Error(),
+		)
+	}
+	if resolved, resolveErr := ResolveAgentMcpConfig(bindings, mcpConfig); resolveErr != nil {
+		slog.Warn("daemon claim: resolve agent mcp servers failed; falling back to agent mcp_config",
+			"task_id", uuidToString(task.ID), "agent_id", uuidToString(agent.ID), "error", resolveErr)
+	} else {
+		mcpConfig = resolved
 	}
 	// Layer the per-task overlay (set at enqueue from the initiator
 	// user's active integrations — currently Composio) on top of the
@@ -3047,17 +3067,18 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		runtimeConfig = json.RawMessage(agent.RuntimeConfig)
 	}
 	resp.Agent = &TaskAgentData{
-		ID:                    uuidToString(agent.ID),
-		Name:                  agent.Name,
-		Instructions:          agent.Instructions,
-		CustomEnv:             customEnv,
-		CustomArgs:            customArgs,
-		McpConfig:             mcpConfig,
-		Model:                 agent.Model.String,
-		ThinkingLevel:         agent.ThinkingLevel.String,
-		ServiceTier:           agent.ServiceTier.String,
-		RuntimeConfig:         runtimeConfig,
-		DisabledRuntimeSkills: disabledRuntimeSkillsFor(agent.DisabledRuntimeSkills, runtimeID, runtime.Provider),
+		ID:                     uuidToString(agent.ID),
+		Name:                   agent.Name,
+		Instructions:           agent.Instructions,
+		CustomEnv:              customEnv,
+		CustomArgs:             customArgs,
+		McpConfig:              mcpConfig,
+		RestrictedWorkspaceMCP: restricted,
+		Model:                  agent.Model.String,
+		ThinkingLevel:          agent.ThinkingLevel.String,
+		ServiceTier:            agent.ServiceTier.String,
+		RuntimeConfig:          runtimeConfig,
+		DisabledRuntimeSkills:  disabledRuntimeSkillsFor(agent.DisabledRuntimeSkills, runtimeID, runtime.Provider),
 	}
 	// Snapshot the agent's persistent OpenClaw model override for this claim.
 	// It applies to every claim until changed or cleared; later edits do not

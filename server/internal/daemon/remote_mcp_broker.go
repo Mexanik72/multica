@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -205,16 +207,18 @@ func remoteMCPServerName(connection remotemcp.Connection) string {
 }
 
 type remoteMCPProxy struct {
-	taskID            string
-	connection        remotemcp.Connection
-	endpoint          *url.URL
-	client            *http.Client
-	credentialHeaders http.Header
-	resolveCredential remoteMCPCredentialResolver
-	path              string
-	semaphore         chan struct{}
-	calls             atomic.Int64
-	logger            *slog.Logger
+	workspaceAllowedTools []string
+	workspaceBrokerToken  string
+	taskID                string
+	connection            remotemcp.Connection
+	endpoint              *url.URL
+	client                *http.Client
+	credentialHeaders     http.Header
+	resolveCredential     remoteMCPCredentialResolver
+	path                  string
+	semaphore             chan struct{}
+	calls                 atomic.Int64
+	logger                *slog.Logger
 }
 
 type remoteMCPRequest struct {
@@ -240,11 +244,27 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 			)
 		}
 	}()
-	if request.URL.Path != proxy.path || request.Method != http.MethodPost {
+	if request.URL.Path != proxy.path || proxy.workspaceAllowedTools == nil && request.Method != http.MethodPost {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if proxy.calls.Add(1) > remoteMCPMaxCalls {
+	if proxy.workspaceBrokerToken != "" && subtle.ConstantTimeCompare(
+		[]byte(request.Header.Get(workspaceMCPBrokerHeader)), []byte(proxy.workspaceBrokerToken),
+	) != 1 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if request.Method != http.MethodPost {
+		if request.Method == http.MethodDelete && request.Header.Get("Mcp-Session-Id") != "" {
+			proxy.endWorkspaceSession(request.Context(), request.Header.Get("Mcp-Session-Id"), request.Header.Get("Mcp-Protocol-Version"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Allow", "POST, DELETE")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if proxy.workspaceAllowedTools == nil && proxy.calls.Add(1) > remoteMCPMaxCalls {
 		writeRemoteMCPError(w, nil, -32002, "Remote MCP task call limit exceeded")
 		return
 	}
@@ -261,7 +281,14 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	var rpcRequest remoteMCPRequest
-	if err := json.Unmarshal(raw, &rpcRequest); err != nil || rpcRequest.JSONRPC != "2.0" {
+	if proxy.workspaceAllowedTools != nil {
+		// Canonicalize the request before forwarding so both sides interpret
+		// duplicate or differently cased JSON keys the same way.
+		raw, err = canonicalWorkspaceMCPRequest(raw, &rpcRequest)
+	} else {
+		err = json.Unmarshal(raw, &rpcRequest)
+	}
+	if err != nil || rpcRequest.JSONRPC != "2.0" {
 		writeRemoteMCPError(w, rpcRequest.ID, -32600, "Remote MCP request is invalid")
 		return
 	}
@@ -312,6 +339,11 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	defer response.Body.Close()
+	if proxy.workspaceAllowedTools != nil {
+		proxy.writeWorkspaceResponse(w, rpcRequest, response)
+		resultClass = "forwarded"
+		return
+	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, remotemcp.MaxResponseBytes+1))
 	if err != nil || len(responseBody) > remotemcp.MaxResponseBytes {
 		resultClass = "remote_error"
@@ -375,6 +407,9 @@ func allowedRemoteMCPMethod(method string) bool {
 }
 
 func (proxy *remoteMCPProxy) toolApproved(name string) bool {
+	if proxy.workspaceAllowedTools != nil {
+		return slices.Contains(proxy.workspaceAllowedTools, name)
+	}
 	for _, tool := range proxy.connection.ApprovedTools {
 		if tool.Name == name {
 			return true

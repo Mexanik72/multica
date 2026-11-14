@@ -2910,6 +2910,30 @@ describe("ApiClient workspace MCP servers", () => {
     expect(JSON.parse(String(init.body))).toEqual({ name: "linear-v2" });
   });
 
+  it("sends and parses an empty MCP allowlist", async () => {
+    const fetchMock = stubJSON([{ ...server, allowed_tools: [] }]);
+    const assigned = await new ApiClient("https://api.example.test")
+      .setAgentMcpToolAccess("a1", "srv-1", []);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/mcp-servers/srv-1/tool-access");
+    expect(JSON.parse(String(init.body))).toEqual({ mode: "selected", tools: [] });
+    expect(assigned[0]?.allowed_tools).toEqual([]);
+  });
+
+  it("keeps only safe discovery fields and rejects a malformed list", async () => {
+    stubJSON({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: ["search_issues"], config: { url: "secret" } });
+    const client = new ApiClient("https://api.example.test");
+    await expect(client.getAgentMcpProbe("a1", "srv-1", "probe"))
+      .resolves.toEqual({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: ["search_issues"] });
+    stubJSON({ id: "probe", status: "completed", tools: { secret: true } });
+    await expect(client.getAgentMcpProbe("a1", "srv-1", "probe")).resolves.toBeNull();
+    stubJSON({ id: "probe", status: "completed", tools: ["search_issues"], read_only_tools: [true] });
+    await expect(client.getAgentMcpProbe("a1", "srv-1", "probe"))
+      .resolves.toMatchObject({ tools: ["search_issues"] });
+    stubJSON({ id: 123, status: "pending" });
+    await expect(client.startAgentMcpProbe("a1", "srv-1")).resolves.toBeNull();
+  });
+
   it("assigns and un-assigns a server on the agent routes", async () => {
     const assigned = [{ ...server, enabled: true }];
     let fetchMock = stubJSON(assigned);

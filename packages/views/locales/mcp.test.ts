@@ -7,8 +7,12 @@ import enAgents from "./en/agents.json";
 import enSettings from "./en/settings.json";
 import { RESOURCES } from "./index";
 
-const AGENT_KEYS = Object.keys(enAgents.tab_body.mcp_config) as Array<
-  keyof typeof enAgents.tab_body.mcp_config
+const AGENT_KEYS = Object.keys(enAgents.tab_body.mcp_config)
+  .filter((key) => key !== "tool_access") as Array<
+    Exclude<keyof typeof enAgents.tab_body.mcp_config, "tool_access">
+  >;
+const TOOL_ACCESS_KEYS = Object.keys(enAgents.tab_body.mcp_config.tool_access) as Array<
+  keyof typeof enAgents.tab_body.mcp_config.tool_access
 >;
 const SETTINGS_KEYS = Object.keys(enSettings.mcp) as Array<
   keyof typeof enSettings.mcp
@@ -26,6 +30,16 @@ describe("MCP locale contracts", () => {
           source: enAgents.tab_body.mcp_config[key],
           resolve: (params: Record<string, string>) =>
             i18n.t(($) => $.tab_body.mcp_config[key], {
+              ns: "agents",
+              ...params,
+            }),
+        })),
+        ...TOOL_ACCESS_KEYS.map((key) => ({
+          namespace: "agents",
+          key: `tab_body.mcp_config.tool_access.${key}`,
+          source: enAgents.tab_body.mcp_config.tool_access[key],
+          resolve: (params: Record<string, string>) =>
+            i18n.t(($) => $.tab_body.mcp_config.tool_access[key], {
               ns: "agents",
               ...params,
             }),

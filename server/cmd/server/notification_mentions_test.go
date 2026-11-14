@@ -92,6 +92,9 @@ func TestNotification_MalformedMemberMentionPreservesValidRecipients(t *testing.
 			if len(inboxEvents) != 1 {
 				t.Fatalf("got %d inbox:new events, want 1", len(inboxEvents))
 			}
+			if inboxEvents[0].DirectMemberMention != !tc.mentionAll {
+				t.Fatalf("DirectMemberMention = %t, want %t", inboxEvents[0].DirectMemberMention, !tc.mentionAll)
+			}
 			item := inboxEvents[0].Payload.(map[string]any)["item"].(map[string]any)
 			if item["recipient_id"] != recipientID || item["type"] != "mentioned" || item["issue_status"] != "todo" {
 				t.Fatalf("unexpected inbox:new item: %+v", item)

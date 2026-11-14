@@ -22,11 +22,12 @@ import (
 // `Enabled` is only meaningful on the agent-scoped list, where it reflects the
 // binding's toggle; it is omitted on the workspace library listing.
 type WorkspaceMcpServerResponse struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Name        string `json:"name"`
-	Transport   string `json:"transport"`
-	Enabled     *bool  `json:"enabled,omitempty"`
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspace_id"`
+	Name         string    `json:"name"`
+	Transport    string    `json:"transport"`
+	Enabled      *bool     `json:"enabled,omitempty"`
+	AllowedTools *[]string `json:"allowed_tools,omitempty"`
 	// AgentCount is how many live agents the entry is assigned to. Only the
 	// workspace library listing reports it; per-agent responses omit it.
 	AgentCount *int64 `json:"agent_count,omitempty"`
@@ -340,25 +341,7 @@ func (h *Handler) ListAgentMcpServers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := h.Queries.ListAgentMcpServers(r.Context(), agent.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list the agent's MCP servers")
-		return
-	}
-	resp := make([]WorkspaceMcpServerResponse, 0, len(rows))
-	for _, row := range rows {
-		enabled := row.Enabled
-		resp = append(resp, WorkspaceMcpServerResponse{
-			ID:          uuidToString(row.ID),
-			WorkspaceID: uuidToString(row.WorkspaceID),
-			Name:        row.Name,
-			Transport:   mcpTransportOf(row.Config),
-			Enabled:     &enabled,
-			CreatedAt:   timestampToString(row.CreatedAt),
-			UpdatedAt:   timestampToString(row.UpdatedAt),
-		})
-	}
-	writeJSON(w, http.StatusOK, resp)
+	h.writeAgentMcpServers(w, r, agent.ID)
 }
 
 // requireAgentMcpWriter resolves the agent and enforces who may change its
@@ -532,13 +515,14 @@ func (h *Handler) writeAgentMcpServers(w http.ResponseWriter, r *http.Request, a
 	for _, row := range rows {
 		enabled := row.Enabled
 		resp = append(resp, WorkspaceMcpServerResponse{
-			ID:          uuidToString(row.ID),
-			WorkspaceID: uuidToString(row.WorkspaceID),
-			Name:        row.Name,
-			Transport:   mcpTransportOf(row.Config),
-			Enabled:     &enabled,
-			CreatedAt:   timestampToString(row.CreatedAt),
-			UpdatedAt:   timestampToString(row.UpdatedAt),
+			ID:           uuidToString(row.ID),
+			WorkspaceID:  uuidToString(row.WorkspaceID),
+			Name:         row.Name,
+			Transport:    mcpTransportOf(row.Config),
+			Enabled:      &enabled,
+			AllowedTools: &row.AllowedTools,
+			CreatedAt:    timestampToString(row.CreatedAt),
+			UpdatedAt:    timestampToString(row.UpdatedAt),
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)

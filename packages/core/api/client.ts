@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { z, ZodType } from "zod";
 import { AgentRuntimeSchema, EMPTY_RUNTIME } from "../runtimes/schema";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
@@ -537,6 +537,7 @@ import {
   RuntimeModelListRequestSchema,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
   SkillSchema,
+  SkillHubImportSchema,
   EMPTY_SKILL,
   SkillSummaryListSchema,
   EMPTY_SKILL_SUMMARY_LIST,
@@ -568,6 +569,7 @@ import {
   PluginInstallationSchema,
   PluginPreviewSchema,
   WorkspaceMcpServerListSchema,
+  WorkspaceMcpProbeSchema,
   WorkspaceMcpServerSchema,
   ShareLinkSchema,
   ShareLinkListResponseSchema,
@@ -3471,6 +3473,39 @@ export class ApiClient {
     });
   }
 
+  async setAgentMcpToolAccess(agentId: string, serverId: string, tools: string[] | null) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/tool-access`,
+      {
+        method: "PUT",
+        body: JSON.stringify(tools === null ? { mode: "all" } : { mode: "selected", tools }),
+      },
+    );
+    return parseWithFallback(raw, WorkspaceMcpServerListSchema, [] as WorkspaceMcpServer[], {
+      endpoint: "PUT /api/agents/{id}/mcp-servers/{serverId}/tool-access",
+    });
+  }
+
+  async startAgentMcpProbe(agentId: string, serverId: string) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/probe`,
+      { method: "POST" },
+    );
+    return parseWithFallback<z.infer<typeof WorkspaceMcpProbeSchema> | null>(raw, WorkspaceMcpProbeSchema, null, {
+      endpoint: "POST /api/agents/{id}/mcp-servers/{serverId}/probe",
+    });
+  }
+
+  async getAgentMcpProbe(agentId: string, serverId: string, requestId: string, signal?: AbortSignal) {
+    const raw = await this.fetch<unknown>(
+      `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}/probes/${encodeURIComponent(requestId)}`,
+      { signal },
+    );
+    return parseWithFallback<z.infer<typeof WorkspaceMcpProbeSchema> | null>(raw, WorkspaceMcpProbeSchema, null, {
+      endpoint: "GET /api/agents/{id}/mcp-servers/{serverId}/probes/{requestId}",
+    });
+  }
+
   async removeAgentMcpServer(agentId: string, serverId: string): Promise<WorkspaceMcpServer[]> {
     const raw = await this.fetch<unknown>(
       `/api/agents/${agentId}/mcp-servers/${encodeURIComponent(serverId)}`,
@@ -3861,6 +3896,19 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async importSkillHub(url: string) {
+    const endpoint = "/api/skills/import/harness-hub";
+    const raw = await this.fetch<unknown>(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    const result = parseWithFallback(raw, SkillHubImportSchema.nullable(), null, {
+      endpoint: `POST ${endpoint}`,
+    });
+    if (!result) throw new Error("Invalid Harness Hub import response");
+    return result;
   }
 
   /**

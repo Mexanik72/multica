@@ -86,10 +86,11 @@ type AgentInvocationTarget struct {
 }
 
 type AgentMcpServer struct {
-	AgentID   pgtype.UUID        `json:"agent_id"`
-	ServerID  pgtype.UUID        `json:"server_id"`
-	Enabled   bool               `json:"enabled"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	AgentID      pgtype.UUID        `json:"agent_id"`
+	ServerID     pgtype.UUID        `json:"server_id"`
+	Enabled      bool               `json:"enabled"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	AllowedTools []string           `json:"allowed_tools"`
 }
 
 type AgentRuntime struct {

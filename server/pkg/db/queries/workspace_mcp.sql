@@ -66,7 +66,7 @@ DELETE FROM agent_mcp_server WHERE server_id = $1;
 -- name: ListAgentMcpServers :many
 -- Every workspace server bound to this agent, enabled or not, for the agent
 -- settings list. `enabled` comes from the binding.
-SELECT s.id, s.workspace_id, s.name, s.config, s.created_at, s.updated_at, ams.enabled
+SELECT s.id, s.workspace_id, s.name, s.config, s.created_at, s.updated_at, ams.enabled, ams.allowed_tools
 FROM workspace_mcp_server s
 JOIN agent_mcp_server ams ON ams.server_id = s.id
 WHERE ams.agent_id = $1
@@ -76,7 +76,7 @@ ORDER BY s.name ASC;
 -- Claim path: only bound AND enabled servers reach the runtime. An unbound
 -- workspace server is invisible to this agent — creating one gives it to
 -- nobody until someone adds it here.
-SELECT s.name, s.config
+SELECT s.name, s.config, ams.allowed_tools
 FROM workspace_mcp_server s
 JOIN agent_mcp_server ams ON ams.server_id = s.id
 WHERE ams.agent_id = $1 AND ams.enabled = TRUE
@@ -95,3 +95,14 @@ WHERE agent_id = $1 AND server_id = $2;
 -- name: RemoveAgentMcpServer :execrows
 DELETE FROM agent_mcp_server
 WHERE agent_id = $1 AND server_id = $2;
+
+-- name: SetAgentMcpAllowedTools :execrows
+UPDATE agent_mcp_server
+SET allowed_tools = sqlc.narg(allowed_tools)::text[]
+WHERE agent_id = $1 AND server_id = $2;
+
+-- name: GetAssignedWorkspaceMcpServer :one
+SELECT s.* FROM workspace_mcp_server s
+JOIN agent_mcp_server ams ON ams.server_id = s.id
+JOIN agent a ON a.id = ams.agent_id AND a.workspace_id = s.workspace_id
+WHERE s.id = $1 AND s.workspace_id = $2 AND a.id = sqlc.arg(agent_id) AND a.archived_at IS NULL;

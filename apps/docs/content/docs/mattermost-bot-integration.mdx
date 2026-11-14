@@ -104,6 +104,20 @@ Binding links use `MULTICA_APP_URL`, falling back to `FRONTEND_ORIGIN`. The resu
 Multica never follows an HTTP redirect when talking to your Mattermost server, so a misconfigured redirect cannot send the bot token to another host. If your deployment redirects (for example HTTP to HTTPS), enter the final URL — the one you would use in a browser — rather than the one that redirects.
 </Callout>
 
+## Send mention notifications to Mattermost
+
+Choose one connected bot per workspace. In the Multica settings page, open the browser's Network tab and inspect the response to `GET /api/workspaces/{id}/mattermost/installations`. Copy the `id` of the active installation you want to send notifications from. Use the workspace slug from its Multica URL.
+
+Set `MULTICA_MATTERMOST_MENTION_BOTS` in the backend environment and recreate the backend container. Separate entries with commas if you run multiple workspaces.
+
+```dotenv
+MULTICA_MATTERMOST_MENTION_BOTS=engineering=11111111-2222-4333-8444-555555555555
+```
+
+When someone directly mentions a member in an issue description or comment, the selected bot sends a direct message with a link to the issue. Multica compares the member's profile name with the Mattermost username after trimming surrounding spaces and converting to lowercase. It skips duplicate names in the workspace, missing accounts, bots, and deactivated accounts. Account linking is unnecessary for these notifications.
+
+Enable this only in workspaces where your organization keeps those names aligned. Issue access is checked by Multica when the recipient opens the link.
+
 ## Verifying a change against a real server
 
 The adapter ships with an end-to-end suite that runs against a real Mattermost,

@@ -36,8 +36,8 @@ import (
 	composiointeg "github.com/multica-ai/multica/server/internal/integrations/composio"
 	"github.com/multica-ai/multica/server/internal/integrations/dingtalk"
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
-	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/mattermost"
+	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -1345,6 +1345,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// could call from the request path. See the adapter's design note.
 			channelRouter.Register(mattermost.TypeMattermost, mattermost.NewMattermostResolverSet(queries, pool, mattermostReplier))
 			mattermost.NewOutbound(queries, box.Open, nil, slog.Default()).Register(bus)
+			mattermost.RegisterMentionNotifications(bus, queries, box.Open, appURLFromEnv(), os.Getenv("MULTICA_MATTERMOST_MENTION_BOTS"))
 
 			// Per-installation inbound: the Supervisor builds + supervises one
 			// WebSocket connection per active Mattermost installation,

@@ -35,6 +35,9 @@ type Event struct {
 	// them when it is empty rather than falling back to workspace fanout.
 	ChatSessionOwnerID string
 
+	// DirectMemberMention distinguishes a named mention from @all or squad expansion.
+	DirectMemberMention bool `json:"-"`
+
 	// MemberPrivateUserID marks an event as private to one member of
 	// WorkspaceID, such as their own preferences or a private saved view. The
 	// realtime layer delivers it only to that user's connections bound to

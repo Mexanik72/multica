@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -199,6 +200,20 @@ func (c *restClient) GetMe(ctx context.Context) (User, error) {
 	var u User
 	err := c.do(ctx, http.MethodGet, "/users/me", nil, &u)
 	return u, err
+}
+
+func (c *restClient) getUserByUsername(ctx context.Context, username string) (User, error) {
+	var user User
+	err := c.do(ctx, http.MethodGet, "/users/username/"+url.PathEscape(username), nil, &user)
+	return user, err
+}
+
+func (c *restClient) createDirectChannel(ctx context.Context, botID, userID string) (string, error) {
+	var channel struct {
+		ID string `json:"id"`
+	}
+	err := c.do(ctx, http.MethodPost, "/channels/direct", []string{botID, userID}, &channel)
+	return channel.ID, err
 }
 
 // GetPost reads one post. The adapter uses it only to learn who authored a

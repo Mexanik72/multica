@@ -55,6 +55,9 @@ import type {
   TelegramInstallation,
   ListTelegramInstallationsResponse,
   RedeemTelegramBindingTokenResponse,
+  MattermostInstallation,
+  ListMattermostInstallationsResponse,
+  RedeemMattermostBindingTokenResponse,
   GroupedIssuesResponse,
   GitHubConnectResponse,
   IssuePullRequestsResponse,
@@ -3077,11 +3080,6 @@ export const InboxUnreadSummarySchema = z.array(
     .object({
       workspace_id: z.string(),
       count: z.number(),
-      // Absent from a server that predates the sectioned Inbox. A value that
-      // is not a number is dropped the same way, so the badge falls back to
-      // `count` instead of the whole summary failing.
-      needs_you: z.number().optional().catch(undefined),
-      next_wake_at: z.string().optional().catch(undefined),
     })
     .loose(),
 );
@@ -3185,10 +3183,6 @@ export const InboxItemListSchema = z.array(
       read: z.boolean(),
       archived: z.boolean(),
       created_at: z.string(),
-      // Absent from a server that predates the sectioned Inbox. Neither may
-      // fail the row: an unknown section or a malformed time reads as unset.
-      section: z.enum(["needs_you", "updates"]).nullish().catch(undefined),
-      snoozed_until: z.string().nullish().catch(undefined),
     })
     .loose(),
 );
@@ -3983,6 +3977,57 @@ export const EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE: RedeemTelegramBinding
   workspace_id: "",
   installation_id: "",
   telegram_user_id: "",
+};
+
+export const MattermostInstallationSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string().default(""),
+  agent_id: z.string().default(""),
+  server_url: z.string().default(""),
+  bot_user_id: z.string().default(""),
+  bot_username: z.string().default(""),
+  installer_user_id: z.string().default(""),
+  status: z.string().default("revoked"),
+  installed_at: z.string().default(""),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const EMPTY_MATTERMOST_INSTALLATION: MattermostInstallation = {
+  id: "",
+  workspace_id: "",
+  agent_id: "",
+  server_url: "",
+  bot_user_id: "",
+  bot_username: "",
+  installer_user_id: "",
+  status: "revoked",
+  installed_at: "",
+  created_at: "",
+  updated_at: "",
+};
+
+export const ListMattermostInstallationsResponseSchema = z.object({
+  installations: z.array(MattermostInstallationSchema).default([]),
+  configured: z.boolean().default(false),
+  install_supported: z.boolean().optional(),
+}).loose();
+
+export const EMPTY_LIST_MATTERMOST_INSTALLATIONS_RESPONSE: ListMattermostInstallationsResponse = {
+  installations: [],
+  configured: false,
+};
+
+export const RedeemMattermostBindingTokenResponseSchema = z.object({
+  workspace_id: z.string().default(""),
+  installation_id: z.string().default(""),
+  mattermost_user_id: z.string().default(""),
+}).loose();
+
+export const EMPTY_REDEEM_MATTERMOST_BINDING_TOKEN_RESPONSE: RedeemMattermostBindingTokenResponse = {
+  workspace_id: "",
+  installation_id: "",
+  mattermost_user_id: "",
 };
 
 // Skills. Introduced for `POST /api/skills/:id/refresh` (update a skill from

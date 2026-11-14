@@ -328,6 +328,12 @@ export type {
   RedeemTelegramBindingTokenResponse,
 } from "./telegram";
 export type {
+  MattermostInstallation,
+  ListMattermostInstallationsResponse,
+  RegisterMattermostRequest,
+  RedeemMattermostBindingTokenResponse,
+} from "./mattermost";
+export type {
   Autopilot,
   AutopilotStatus,
   AutopilotExecutionMode,

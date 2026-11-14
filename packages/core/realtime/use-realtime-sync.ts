@@ -45,6 +45,7 @@ import { slackKeys } from "../slack/queries";
 import { dingtalkKeys } from "../dingtalk/queries";
 import { wecomKeys } from "../wecom/queries";
 import { telegramKeys } from "../telegram/queries";
+import { mattermostKeys } from "../mattermost/queries";
 import {
   onIssueCreated,
   onIssueUpdated,
@@ -61,7 +62,6 @@ import {
   invalidateUpdatedAtSortedIssueLists,
 } from "../issues/cache-coordinator";
 import { onInboxNew, onInboxInvalidate, onInboxIssueStatusChanged, onInboxIssueDeleted, onInboxSummaryInvalidate } from "../inbox/ws-updaters";
-import { inboxItemNeedsUser } from "../inbox/sections";
 import {
   notificationPreferenceOptions,
   notificationPreferenceKeys,
@@ -590,10 +590,6 @@ export async function handleInboxNew(
   // A new item in ANY workspace can light the workspace-switcher dot, so
   // refresh the cross-workspace summary regardless of the active workspace.
   void onInboxSummaryInvalidate(qc);
-  // A banner interrupts, so it is kept for what is addressed to the user and
-  // still unread. An update reports activity on something they only follow,
-  // and a run they stopped themselves comes back already read.
-  if (!inboxItemNeedsUser(item) || item.read) return;
   // Fire a native OS notification only when the app isn't focused. When
   // the user is already looking at Multica, the inbox sidebar's unread
   // styling is enough — no need to interrupt with a banner. `desktopAPI`
@@ -1081,6 +1077,10 @@ export function useRealtimeSync(
       telegram_installation: () => {
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: telegramKeys.installations(wsId) });
+      },
+      mattermost_installation: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: mattermostKeys.installations(wsId) });
       },
       pull_request: () => {
         // PR list is keyed by issue id, not workspace, so we invalidate all

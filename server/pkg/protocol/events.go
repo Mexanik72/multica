@@ -54,8 +54,6 @@ const (
 	EventInboxDeleted       = "inbox:deleted"
 	EventInboxBatchRead     = "inbox:batch-read"
 	EventInboxBatchArchived = "inbox:batch-archived"
-	EventInboxSnoozed       = "inbox:snoozed"
-	EventInboxUnsnoozed     = "inbox:unsnoozed"
 
 	// Workspace events
 	EventWorkspaceUpdated = "workspace:updated"
@@ -248,4 +246,9 @@ const (
 	// front-ends invalidate the Telegram installations query on either.
 	EventTelegramInstallationCreated = "telegram_installation:created"
 	EventTelegramInstallationRevoked = "telegram_installation:revoked"
+
+	// Mattermost installation lifecycle. Same contract as the Slack pair:
+	// front-ends invalidate the Mattermost installations query on either.
+	EventMattermostInstallationCreated = "mattermost_installation:created"
+	EventMattermostInstallationRevoked = "mattermost_installation:revoked"
 )

@@ -56,15 +56,18 @@ vi.mock("@multica/core/api", async (original) => ({
       "listDingTalkInstallations",
       "listWecomInstallations",
       "listTelegramInstallations",
+      "listMattermostInstallations",
       "registerSlackBYO",
       "registerDingTalkBYO",
       "registerWecomBYO",
       "registerTelegramBot",
+      "registerMattermostBot",
       "deleteLarkInstallation",
       "deleteSlackInstallation",
       "deleteDingTalkInstallation",
       "deleteWecomInstallation",
       "deleteTelegramInstallation",
+      "deleteMattermostInstallation",
       "listAgentDingTalkGroups",
       "listAgents",
       "beginLarkInstall",
@@ -122,6 +125,7 @@ beforeEach(() => {
     "listDingTalkInstallations",
     "listWecomInstallations",
     "listTelegramInstallations",
+    "listMattermostInstallations",
   ] as const) {
     vi.mocked(api[name]).mockResolvedValue(listing() as never);
   }
@@ -339,7 +343,7 @@ describe("agent messaging channels", () => {
     expect(screen.queryByText("Telegram")).toBeNull();
   });
 
-  it.each(["lark", "slack", "dingtalk", "wecom", "telegram"] as const)(
+  it.each(["lark", "slack", "dingtalk", "wecom", "telegram", "mattermost"] as const)(
     "confirms %s disconnect and preserves the connection on failure",
     async (channel) => {
       const methods = {
@@ -348,6 +352,7 @@ describe("agent messaging channels", () => {
         dingtalk: ["listDingTalkInstallations", "deleteDingTalkInstallation"],
         wecom: ["listWecomInstallations", "deleteWecomInstallation"],
         telegram: ["listTelegramInstallations", "deleteTelegramInstallation"],
+        mattermost: ["listMattermostInstallations", "deleteMattermostInstallation"],
       } as const;
       const [list, remove] = methods[channel];
       vi.mocked(api[list]).mockResolvedValue(listing([active]) as never);
@@ -386,6 +391,7 @@ const platformName = {
   dingtalk: "DingTalk",
   wecom: "WeCom",
   telegram: "Telegram",
+  mattermost: "Mattermost",
 } as const;
 
 describe("shared connection dialog", () => {
@@ -492,6 +498,12 @@ describe("shared connection dialog", () => {
       { bot_id: "first", secret: "second", bot_name: undefined },
     ],
     ["telegram", "registerTelegramBot", ["Bot token"], { bot_token: "first" }],
+    [
+      "mattermost",
+      "registerMattermostBot",
+      ["Server URL", "Bot access token"],
+      { server_url: "https://mattermost.example.com", access_token: "second" },
+    ],
   ] as const)(
     "submits %s through the existing API and closes after success",
     async (channel, method, labels, payload) => {
@@ -513,7 +525,7 @@ describe("shared connection dialog", () => {
       fireEvent.click(row);
       labels.forEach((label, index) =>
         fireEvent.change(screen.getByLabelText(label), {
-          target: { value: index === 0 ? " first " : " second " },
+          target: { value: index === 0 ? (channel === "mattermost" ? " https://mattermost.example.com " : " first ") : " second " },
         }),
       );
       expect(screen.getByLabelText(labels.at(-1)!)).toHaveAttribute(
@@ -610,7 +622,7 @@ describe("workspace overview", () => {
     );
     expect(state.replace).toHaveBeenCalledWith("/acme/settings?tab=channels");
     expect(screen.getByText("Who can connect")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(5);
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(6);
   });
 
   it("reports failed reads as unavailable and keeps a retry control", async () => {

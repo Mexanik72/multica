@@ -13,11 +13,12 @@ package execenv
 // agree on the wire strings below. WeCom keeps its reserved wire discriminator
 // here until its adapter lands.
 const (
-	ChannelTypeSlack    = "slack"
-	ChannelTypeFeishu   = "feishu"
-	ChannelTypeWecom    = "wecom"
-	ChannelTypeDingtalk = "dingtalk"
-	ChannelTypeTelegram = "telegram"
+	ChannelTypeSlack      = "slack"
+	ChannelTypeFeishu     = "feishu"
+	ChannelTypeWecom      = "wecom"
+	ChannelTypeDingtalk   = "dingtalk"
+	ChannelTypeTelegram   = "telegram"
+	ChannelTypeMattermost = "mattermost"
 )
 
 // SurfacePersistsTranscript reports whether a chat surface stores its
@@ -30,7 +31,7 @@ const (
 // so a future non-persisting channel is never told "read it back".
 func SurfacePersistsTranscript(channelType string) bool {
 	switch channelType {
-	case "", ChannelTypeFeishu, ChannelTypeWecom, ChannelTypeDingtalk:
+	case "", ChannelTypeFeishu, ChannelTypeWecom, ChannelTypeDingtalk, ChannelTypeMattermost:
 		return true
 	default:
 		return false
@@ -129,6 +130,8 @@ func ChannelDisplayName(channelType string) string {
 		return "WeCom"
 	case ChannelTypeDingtalk:
 		return "DingTalk"
+	case ChannelTypeMattermost:
+		return "Mattermost"
 	case ChannelTypeTelegram:
 		return "Telegram"
 	default:

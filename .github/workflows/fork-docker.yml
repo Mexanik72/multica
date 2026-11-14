@@ -1,0 +1,101 @@
+name: Fork Docker
+
+on:
+  push:
+    branches: [fork/main]
+
+jobs:
+  publish:
+    if: github.repository == 'Mexanik72/multica' && github.ref == 'refs/heads/fork/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MULTICA_BACKEND_IMAGE: ghcr.io/mexanik72/multica-backend
+      MULTICA_WEB_IMAGE: ghcr.io/mexanik72/multica-web
+      MULTICA_IMAGE_TAG: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.MULTICA_BACKEND_IMAGE }}:${{ env.MULTICA_IMAGE_TAG }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            VERSION=${{ env.MULTICA_IMAGE_TAG }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=fork-backend
+          cache-to: type=gha,mode=max,scope=fork-backend
+
+      - name: Build web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.MULTICA_WEB_IMAGE }}:${{ env.MULTICA_IMAGE_TAG }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: NEXT_PUBLIC_APP_VERSION=${{ env.MULTICA_IMAGE_TAG }}
+          cache-from: type=gha,scope=fork-web
+          cache-to: type=gha,mode=max,scope=fork-web
+
+      - name: Check the self-hosted stack
+        shell: bash
+        run: |
+          export JWT_SECRET="$(openssl rand -hex 32)"
+          compose=(docker compose -f docker-compose.selfhost.yml)
+          cleanup() {
+            local status=$?
+            if (( status != 0 )); then
+              "${compose[@]}" logs --no-color || true
+            fi
+            "${compose[@]}" down --volumes || true
+          }
+          trap cleanup EXIT
+          "${compose[@]}" pull postgres
+          "${compose[@]}" up -d --pull never
+
+          wait_for_ok() {
+            local url=$1
+            for attempt in {1..60}; do
+              if [[ $(curl --silent --location --max-time 3 --output /dev/null --write-out '%{http_code}' "$url") == 200 ]]; then
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::Timed out waiting for HTTP 200 from $url"
+            return 1
+          }
+          wait_for_ok http://127.0.0.1:8080/readyz
+          wait_for_ok http://127.0.0.1:3000/
+          wait_for_ok http://127.0.0.1:3000/health
+
+      - name: Sign in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the checked images
+        shell: bash
+        run: |
+          backend="$MULTICA_BACKEND_IMAGE:$MULTICA_IMAGE_TAG"
+          web="$MULTICA_WEB_IMAGE:$MULTICA_IMAGE_TAG"
+          docker push "$backend"
+          docker push "$web"
+          {
+            echo '### Published images'
+            printf '\n- `%s`\n- `%s`\n' "$backend" "$web"
+          } >> "$GITHUB_STEP_SUMMARY"

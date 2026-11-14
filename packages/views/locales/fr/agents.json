@@ -594,7 +594,7 @@
         "mode": "Mode d’accès",
         "all": "Tous les outils",
         "selected": "Outils sélectionnés uniquement",
-        "requires_codex": "Les restrictions exigent Streamable HTTP et un runtime Codex local intégré avec un daemon Multica à jour.",
+        "requires_runtime": "Les restrictions exigent Streamable HTTP et un runtime Codex ou Hermes local intégré avec un daemon Multica à jour.",
         "discovery_runtime": "Runtime pour la découverte",
         "no_runtime": "Aucun de vos runtimes compatibles n’est en ligne",
         "loading": "Chargement des runtimes…",

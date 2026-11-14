@@ -1,6 +1,8 @@
 package execenv
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -1041,4 +1043,60 @@ func writeFileAtomic(dst string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("rename temp to %s: %w", dst, err)
 	}
 	return nil
+}
+
+// ConfigureHermesWorkspaceMCP installs the task's restricted broker endpoints
+// in its derived home. Gateway-backed ACP keeps client-supplied MCP specs on
+// the session, so rotating brokers belong in the gateway's task config.
+func ConfigureHermesWorkspaceMCP(home string, mounts json.RawMessage) error {
+	if home == "" {
+		return errors.New("restricted MCP assignments require a task-local Hermes home")
+	}
+	var brokers struct {
+		Servers map[string]struct {
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(mounts, &brokers); err != nil || len(brokers.Servers) == 0 {
+		return errors.New("invalid restricted MCP broker configuration")
+	}
+
+	path := filepath.Join(home, "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read Hermes task config: %w", err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return errors.New("could not parse Hermes task config")
+	}
+	top := yamlDocumentRoot(&doc)
+	if top == nil {
+		return errors.New("expected a mapping in Hermes task config")
+	}
+	var config struct {
+		Servers map[string]any `yaml:"mcp_servers"`
+	}
+	if err := top.Decode(&config); err != nil {
+		return errors.New("could not read MCP servers from Hermes task config")
+	}
+	if config.Servers == nil {
+		config.Servers = make(map[string]any, len(brokers.Servers))
+	}
+	for name, broker := range brokers.Servers {
+		config.Servers[name] = map[string]any{
+			"url": broker.URL, "headers": broker.Headers,
+			"skip_preflight": true,
+		}
+	}
+	var servers yaml.Node
+	if err := servers.Encode(config.Servers); err != nil {
+		return errors.New("could not encode Hermes MCP servers")
+	}
+	if original := yamlMapValue(top, "mcp_servers"); original != nil && original.Anchor != "" {
+		expandAliasesOf(&doc, original)
+	}
+	yamlSetMapValue(top, "mcp_servers", &servers)
+	return marshalYAMLToFile(&doc, path)
 }

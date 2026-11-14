@@ -435,7 +435,7 @@
         "mode": "アクセスモード",
         "all": "すべてのツール",
         "selected": "選択したツールのみ",
-        "requires_codex": "制限を使うには Streamable HTTP、ローカルの組み込み Codex ランタイム、更新済みの Multica デーモンが必要です。",
+        "requires_runtime": "制限を使うには Streamable HTTP、ローカルの組み込み Codex または Hermes ランタイム、更新済みの Multica デーモンが必要です。",
         "discovery_runtime": "ツールを取得するランタイム",
         "no_runtime": "オンラインの対応ランタイムがありません",
         "loading": "ランタイムを読み込み中…",

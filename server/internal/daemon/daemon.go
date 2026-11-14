@@ -8314,21 +8314,26 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 	var codexPinnedMCPURLs map[string]string
+	var hermesRestrictedMCP json.RawMessage
 	if task.Agent != nil && len(task.Agent.RestrictedWorkspaceMCP) > 0 {
 		rt := d.findRuntime(task.RuntimeID)
-		if provider != "codex" || rt == nil || rt.ProfileID != "" {
-			return TaskResult{}, errors.New("restricted MCP tools require a local built-in Codex runtime")
+		if protocol.WorkspaceMCPToolsCapability(provider) == "" || rt == nil || rt.ProfileID != "" {
+			return TaskResult{}, errors.New("restricted MCP tools require a local built-in Codex or Hermes runtime")
 		}
 		mounts, pinnedURLs, brokers, err := startWorkspaceMCPBrokers(ctx, task.Agent.RestrictedWorkspaceMCP)
 		if err != nil {
 			return TaskResult{}, fmt.Errorf("prepare restricted MCP servers: %w", err)
 		}
 		defer brokers.Close()
-		effectiveMcpConfig, err = mergeTaskRemoteMCPConfig(effectiveMcpConfig, mounts)
-		if err != nil {
-			return TaskResult{}, fmt.Errorf("apply restricted MCP configuration: %w", err)
+		if provider == "hermes" {
+			hermesRestrictedMCP = mounts
+		} else {
+			effectiveMcpConfig, err = mergeTaskRemoteMCPConfig(effectiveMcpConfig, mounts)
+			if err != nil {
+				return TaskResult{}, fmt.Errorf("apply restricted MCP configuration: %w", err)
+			}
+			codexPinnedMCPURLs = pinnedURLs
 		}
-		codexPinnedMCPURLs = pinnedURLs
 	}
 	// Decode openclaw-specific runtime_config knobs once so reuse / prepare /
 	// ExecOptions all see the same mode + gateway pin (issue #3260). Parse
@@ -8471,22 +8476,23 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			// The canonical path the lock was taken on. Handing Reuse the raw
 			// PriorWorkDir instead would re-resolve it, so the directory we
 			// locked and the directory we use could differ.
-			WorkDir:               priorWorkDir,
-			Provider:              provider,
-			CodexVersion:          codexVersion,
-			ResumeSessionID:       task.PriorSessionID,
-			OpenclawBin:           openclawBin,
-			McpConfig:             effectiveMcpConfig,
-			CursorMcpAuthSource:   cursorMcpAuthSource,
-			OpenclawGateway:       openclawGateway,
-			HermesSourceHome:      hermesSourceHome,
-			HermesSourceMustExist: hermesSourceMustExist,
-			HermesEnv:             hermesEnv,
-			HermesMemoryStore:     hermesMemoryStore,
-			HermesSessionStore:    hermesSessionStore,
-			ReasonixEnv:           reasonixEnv,
-			CodexCustomArgs:       codexSandboxArgs,
-			Task:                  taskCtx,
+			WorkDir:                   priorWorkDir,
+			Provider:                  provider,
+			CodexVersion:              codexVersion,
+			ResumeSessionID:           task.PriorSessionID,
+			OpenclawBin:               openclawBin,
+			McpConfig:                 effectiveMcpConfig,
+			CursorMcpAuthSource:       cursorMcpAuthSource,
+			OpenclawGateway:           openclawGateway,
+			HermesSourceHome:          hermesSourceHome,
+			HermesSourceMustExist:     hermesSourceMustExist,
+			HermesRequiresManagedHome: len(hermesRestrictedMCP) > 0,
+			HermesEnv:                 hermesEnv,
+			HermesMemoryStore:         hermesMemoryStore,
+			HermesSessionStore:        hermesSessionStore,
+			ReasonixEnv:               reasonixEnv,
+			CodexCustomArgs:           codexSandboxArgs,
+			Task:                      taskCtx,
 		})
 		if err != nil {
 			return TaskResult{}, asEnvironmentSetupFailure(fmt.Errorf("reuse execution environment: %w", err))
@@ -8522,21 +8528,22 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			AgentName:       agentName,
 			// This run already holds the claim (envClaim above) and the reset
 			// it implies; preparation must not try to take it again.
-			EnvRootPreclaimed:     true,
-			Provider:              provider,
-			CodexVersion:          codexVersion,
-			OpenclawBin:           openclawBin,
-			McpConfig:             effectiveMcpConfig,
-			CursorMcpAuthSource:   cursorMcpAuthSource,
-			OpenclawGateway:       openclawGateway,
-			HermesSourceHome:      hermesSourceHome,
-			HermesSourceMustExist: hermesSourceMustExist,
-			HermesEnv:             hermesEnv,
-			HermesMemoryStore:     hermesMemoryStore,
-			HermesSessionStore:    hermesSessionStore,
-			ReasonixEnv:           reasonixEnv,
-			CodexCustomArgs:       codexSandboxArgs,
-			Task:                  taskCtx,
+			EnvRootPreclaimed:         true,
+			Provider:                  provider,
+			CodexVersion:              codexVersion,
+			OpenclawBin:               openclawBin,
+			McpConfig:                 effectiveMcpConfig,
+			CursorMcpAuthSource:       cursorMcpAuthSource,
+			OpenclawGateway:           openclawGateway,
+			HermesSourceHome:          hermesSourceHome,
+			HermesSourceMustExist:     hermesSourceMustExist,
+			HermesRequiresManagedHome: len(hermesRestrictedMCP) > 0,
+			HermesEnv:                 hermesEnv,
+			HermesMemoryStore:         hermesMemoryStore,
+			HermesSessionStore:        hermesSessionStore,
+			ReasonixEnv:               reasonixEnv,
+			CodexCustomArgs:           codexSandboxArgs,
+			Task:                      taskCtx,
 		}
 		if localAssignment.UsesWorktree() {
 			prepParams.LocalWorktree = &execenv.LocalWorktreeParams{LocalPath: localAssignment.AbsPath}
@@ -9007,6 +9014,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		DaemonVersion:  d.cfg.CLIVersion,
 		CodexVersion:   codexVersion,
 		BuiltinRuntime: !usesCustomProfileCommand,
+	}
+	if len(hermesRestrictedMCP) > 0 {
+		if err := execenv.ConfigureHermesWorkspaceMCP(env.HermesHome, hermesRestrictedMCP); err != nil {
+			return TaskResult{}, fmt.Errorf("apply restricted Hermes MCP configuration: %w", err)
+		}
 	}
 	if hermesOverlayActive {
 		// Retire an owner left by a crashed/interrupted daemon before it can
@@ -11126,11 +11138,9 @@ func isBlockedEnvKey(key string) bool {
 
 // layerCustomEnvAndHermesHome applies the agent's custom_env onto the child env
 // (skipping daemon-internal blocklisted keys), then overrides HERMES_HOME with
-// the per-task overlay when one was built. HERMES_HOME is intentionally NOT
-// blocklisted: with skills bound the overlay is built FROM the user's
-// HERMES_HOME and must win here; with no skills bound (overlayHome empty) the
-// user's own HERMES_HOME passes through unchanged, so a skill-less Hermes task
-// keeps its original behavior.
+// the per-task overlay when one was built. The user's HERMES_HOME selects
+// the source profile. The overlay takes precedence for tasks with workspace
+// skills or restricted MCP assignments.
 // sanitizeAgentEnv returns the agent custom_env with daemon-blocklisted keys
 // removed — the effective env the Hermes child actually sees, used to expand
 // ${VAR} in external_dirs consistently (blocked keys like HOME resolve to the

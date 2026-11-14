@@ -630,7 +630,7 @@
         "mode": "Режим доступа",
         "all": "Все инструменты",
         "selected": "Только выбранные",
-        "requires_codex": "Для ограничений нужны Streamable HTTP, локальный встроенный runtime Codex и обновлённый daemon Multica.",
+        "requires_runtime": "Для ограничений нужны Streamable HTTP, локальный встроенный runtime Codex или Hermes и обновлённый daemon Multica.",
         "discovery_runtime": "Runtime для загрузки списка",
         "no_runtime": "Нет совместимого runtime онлайн среди ваших устройств",
         "loading": "Загружаем runtimes…",

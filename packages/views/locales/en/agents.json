@@ -594,7 +594,7 @@
         "mode": "Access mode",
         "all": "All tools",
         "selected": "Selected tools only",
-        "requires_codex": "Restrictions require Streamable HTTP and a local built-in Codex runtime with an updated Multica daemon.",
+        "requires_runtime": "Restrictions require Streamable HTTP and a local built-in Codex or Hermes runtime with an updated Multica daemon.",
         "discovery_runtime": "Runtime for discovery",
         "no_runtime": "No compatible online runtime you own",
         "loading": "Loading runtimes…",

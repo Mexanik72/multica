@@ -58,19 +58,22 @@ func TestAgentMcpToolAccessIsScopedToAssignment(t *testing.T) {
 func TestClaimRestrictedWorkspaceMCP(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		capability bool
+		provider   string
+		capability string
 		ownConfig  string
 		reject     bool
 		message    string
 	}{
-		{name: "capable daemon", capability: true, reject: false},
-		{name: "old daemon", reject: true, message: "update the Multica daemon"},
-		{name: "agent name collision", capability: true, ownConfig: `{"mcp":{"shared":{"command":"other"}}}`, reject: true, message: "conflicts"},
+		{name: "capable Codex daemon", provider: "codex", capability: protocol.DaemonCapabilityWorkspaceMCPToolsV1},
+		{name: "old Codex daemon", provider: "codex", reject: true, message: "update the Multica daemon"},
+		{name: "capable Hermes daemon", provider: "hermes", capability: protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1},
+		{name: "Codex-only daemon for Hermes", provider: "hermes", capability: protocol.DaemonCapabilityWorkspaceMCPToolsV1, reject: true, message: "update the Multica daemon"},
+		{name: "agent name collision", provider: "hermes", capability: protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1, ownConfig: `{"mcp":{"shared":{"command":"other"}}}`, reject: true, message: "conflicts"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := createWorkspaceMcpServerForTest(t, "shared", workspaceMcpTestEntry)
-			runtime := dbfx.Runtime(t, "codex", testutil.Cols{
-				"runtime_mode": "local", "provider": "codex",
+			runtime := dbfx.Runtime(t, tc.provider, testutil.Cols{
+				"runtime_mode": "local", "provider": tc.provider,
 			})
 			agent := dbfx.Agent(t, "restricted", runtime, testutil.Cols{"runtime_mode": "local"})
 			if tc.ownConfig != "" {
@@ -85,9 +88,7 @@ func TestClaimRestrictedWorkspaceMCP(t *testing.T) {
 			testutil.Call(t, testHandler.SetAgentMcpToolAccess, update).Want(http.StatusOK)
 
 			req := withURLParam(newOwnerDaemonRequest(http.MethodPost, "/", nil), "runtimeId", runtime)
-			if tc.capability {
-				req.Header.Set("X-Client-Capabilities", protocol.DaemonCapabilityWorkspaceMCPToolsV1)
-			}
+			req.Header.Set("X-Client-Capabilities", tc.capability)
 			resp := testutil.Call(t, testHandler.ClaimTaskByRuntime, req).Want(http.StatusOK)
 			var claim struct {
 				Task *AgentTaskResponse
@@ -116,9 +117,9 @@ func TestClaimRestrictedWorkspaceMCP(t *testing.T) {
 
 func TestAssignedWorkspaceMCPProbeKeepsConfigOnDaemonPath(t *testing.T) {
 	serverID := createWorkspaceMcpServerForTest(t, "probe-policy", workspaceMcpTestEntry)
-	runtimeID := dbfx.Runtime(t, "probe-codex", testutil.Cols{
-		"runtime_mode": "local", "provider": "codex", "daemon_id": "probe-daemon",
-		"metadata": testutil.Raw(`'{"capabilities":["workspace-mcp-tools-v1"]}'::jsonb`),
+	runtimeID := dbfx.Runtime(t, "probe-hermes", testutil.Cols{
+		"runtime_mode": "local", "provider": "hermes", "daemon_id": "probe-daemon",
+		"metadata": testutil.Raw(`'{"capabilities":["hermes-workspace-mcp-tools-v1"]}'::jsonb`),
 	})
 	agentID := dbfx.Agent(t, "probe-agent", runtimeID)
 	addAgentMcpServerForTest(t, agentID, serverID)

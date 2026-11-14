@@ -5,7 +5,21 @@ import (
 	"regexp"
 )
 
-const DaemonCapabilityWorkspaceMCPToolsV1 = "workspace-mcp-tools-v1"
+const (
+	DaemonCapabilityWorkspaceMCPToolsV1       = "workspace-mcp-tools-v1"
+	DaemonCapabilityHermesWorkspaceMCPToolsV1 = "hermes-workspace-mcp-tools-v1"
+)
+
+func WorkspaceMCPToolsCapability(provider string) string {
+	switch provider {
+	case "codex":
+		return DaemonCapabilityWorkspaceMCPToolsV1
+	case "hermes":
+		return DaemonCapabilityHermesWorkspaceMCPToolsV1
+	default:
+		return ""
+	}
+}
 
 const MaxWorkspaceMCPTools = 1000
 

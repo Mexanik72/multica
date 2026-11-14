@@ -24,9 +24,9 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
       runtime_mode: "local", runtime_config: {}, custom_args: [], skills: [],
     };
     const runtime = {
-      id: runtimeId, workspace_id: workspace.id, owner_id: ownerId, name: "Codex",
-      provider: "codex", status: "online", runtime_mode: "local",
-      metadata: { capabilities: ["workspace-mcp-tools-v1"] },
+      id: runtimeId, workspace_id: workspace.id, owner_id: ownerId, name: "Hermes",
+      provider: "hermes", status: "online", runtime_mode: "local",
+      metadata: { capabilities: ["hermes-workspace-mcp-tools-v1"] },
     };
     let server = {
       id: serverId, workspace_id: workspace.id, name: "workspace-issues",
@@ -59,6 +59,7 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await page.goto(`/${workspace.slug}/agents/${agentId}?view=mcp_config`, { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: "Tool access", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Tool access for workspace-issues" });
+    await expect(dialog.getByRole("combobox", { name: "Runtime for discovery" })).toHaveValue(runtimeId);
     await dialog.getByRole("button", { name: "Load tools" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Could not load the tool list");
     await dialog.getByRole("button", { name: "Retry discovery" }).click();

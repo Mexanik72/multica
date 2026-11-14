@@ -3,13 +3,20 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/daemon/execenv"
+	"github.com/multica-ai/multica/server/pkg/protocol"
+	"gopkg.in/yaml.v3"
 )
 
 func TestWorkspaceMCPProxyEnforcesAssignment(t *testing.T) {
@@ -132,5 +139,86 @@ func TestWorkspaceMCPProbeListsPagesAndClosesSession(t *testing.T) {
 	tools, code := probeWorkspaceMCP(t.Context(), raw)
 	if code != "" || !reflect.DeepEqual(tools, []string{"search_issues", "create_issue"}) || !closed.Load() {
 		t.Fatalf("tools=%v error=%s session closed=%v", tools, code, closed.Load())
+	}
+}
+
+func TestWorkspaceMCPHermesConfigUsesBrokerInsteadOfMachineServer(t *testing.T) {
+	var toolCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var call remoteMCPRequest
+		if err := json.NewDecoder(req.Body).Decode(&call); err != nil {
+			t.Error(err)
+			return
+		}
+		if call.Method == "tools/call" {
+			toolCalls.Add(1)
+			if !strings.Contains(string(call.Params), "search_issues") {
+				t.Error("forbidden tool reached the upstream")
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"found issues"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search_issues"},{"name":"create_issue"}]}}`))
+	}))
+	defer upstream.Close()
+
+	raw, _ := json.Marshal(map[string]string{"url": upstream.URL})
+	mounts, _, brokers, err := startWorkspaceMCPBrokers(t.Context(), []protocol.RestrictedWorkspaceMCP{
+		{Name: "issues", Config: raw, Tools: []string{"search_issues"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer brokers.Close()
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte("mcp_servers:\n  issues: {command: machine-command}\n  other: {command: keep}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := execenv.ConfigureHermesWorkspaceMCP(home, mounts); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "machine-command") || strings.Contains(string(data), upstream.URL) ||
+		!strings.Contains(string(data), "command: keep") {
+		t.Fatal("task config must replace the collision and preserve unrelated servers")
+	}
+	var config struct {
+		Servers map[string]struct {
+			URL     string
+			Headers map[string]string
+		} `yaml:"mcp_servers"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Servers["issues"]
+	for _, test := range []struct{ request, want, absent string }{
+		{`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, "search_issues", "create_issue"},
+		{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_issues"}}`, "found issues", "error"},
+		{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_issue"}}`, "not approved", "result"},
+	} {
+		req, err := http.NewRequest(http.MethodPost, cfg.URL, strings.NewReader(test.request))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, value := range cfg.Headers {
+			req.Header.Set(key, value)
+		}
+		resp, err := upstream.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || !strings.Contains(string(body), test.want) || strings.Contains(string(body), test.absent) {
+			t.Fatalf("unexpected broker response %s, %v", body, err)
+		}
+	}
+	if got := toolCalls.Load(); got != 1 {
+		t.Fatalf("expected one upstream tool call, got %d", got)
 	}
 }

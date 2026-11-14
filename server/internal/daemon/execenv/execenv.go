@@ -97,6 +97,8 @@ type PrepareParams struct {
 	// is absent — set when an explicit named profile was requested so a typo
 	// doesn't silently seed from an empty home and drop the user's auth/config.
 	HermesSourceMustExist bool
+	// HermesRequiresManagedHome keeps restricted assignments inside the task home.
+	HermesRequiresManagedHome bool
 	// HermesMemoryStore is the agent's persistent Hermes memory store
 	// (HermesMemoryStorePath) the overlay links memories/ to, so memory outlives
 	// the task. Empty keeps memories/ task-local — no agent to key on, or the
@@ -665,19 +667,9 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		env.ClaudeSettingsPath = settingsPath
 	}
 
-	// For Hermes, redirect HERMES_HOME to a per-task compatibility overlay ONLY
-	// when the agent has skills bound. A skill-less Hermes task keeps the user's
-	// real home and its original behavior untouched. The overlay makes the bound
-	// skills visible — Hermes discovers skills only from its home, so the old
-	// .agent_context/skills/ fallback was never read (issue #5242). See
-	// hermes_home.go.
-	//
-	// Note this is a local contract, not an observable product behaviour: the
-	// server appends the platform's built-in skills to every agent's skill set
-	// (service.LoadAgentSkillBundles), so a claimed task's AgentSkills is never
-	// empty and the skill-less branch is effectively unreachable in production.
-	// Emptying an agent's own skill list is NOT a way to opt out of the overlay.
-	if params.Provider == "hermes" && len(params.Task.AgentSkills) > 0 {
+	// Hermes discovers workspace skills and restricted MCP mounts through its
+	// home. Use a task-local home when either is configured.
+	if params.Provider == "hermes" && (len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome) {
 		hermesHome := filepath.Join(envRoot, "hermes-home")
 		sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
 		if err != nil {
@@ -808,9 +800,11 @@ type ReuseParams struct {
 	// conversation session store.
 	HermesSourceHome      string
 	HermesSourceMustExist bool
-	HermesEnv             map[string]string
-	HermesMemoryStore     string
-	HermesSessionStore    string
+	// HermesRequiresManagedHome keeps restricted assignments inside the task home.
+	HermesRequiresManagedHome bool
+	HermesEnv                 map[string]string
+	HermesMemoryStore         string
+	HermesSessionStore        string
 	// ReasonixEnv mirrors PrepareParams.ReasonixEnv on reuse so the rewritten
 	// reasonix.toml keeps restating the owner's current permissions.
 	ReasonixEnv map[string]string
@@ -1005,15 +999,11 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 		env.PreparedSkillNames = resolveSkillSlugs(params.Task.AgentSkills)
 	}
 
-	// Refresh (or tear down) the per-task HERMES_HOME on reuse. With skills
-	// bound, rebuild the overlay so an added/removed/edited skill and the
-	// mirrored home/config track the user's current ~/.hermes/ before the next
-	// hermes process starts. With no skills bound, drop the redirect entirely so
-	// the task reverts to the user's real home — matching a fresh Prepare for a
-	// skill-less agent.
+	// Rebuild the Hermes overlay from the selected profile on each run, so
+	// old broker endpoints and bound skills cannot survive in a reused home.
 	if params.Provider == "hermes" && env.RootDir != "" {
 		hermesHome := filepath.Join(env.RootDir, "hermes-home")
-		if len(params.Task.AgentSkills) > 0 {
+		if len(params.Task.AgentSkills) > 0 || params.HermesRequiresManagedHome {
 			sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
 			if err != nil {
 				// Fail closed: a half-built overlay must not run. Returning nil

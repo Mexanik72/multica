@@ -22,9 +22,18 @@ import { Loader2 } from "@multica/ui/icons";
 import { useT } from "../../../i18n";
 
 function supportsMcpToolAccess(runtime: AgentRuntime | null) {
-  return runtime?.runtime_mode === "local" && runtime.provider === "codex" &&
-    !runtime.profile_id && Array.isArray(runtime.metadata?.capabilities) &&
-    runtime.metadata.capabilities.includes("workspace-mcp-tools-v1");
+  if (runtime?.runtime_mode !== "local" || runtime.profile_id ||
+      !Array.isArray(runtime.metadata?.capabilities)) {
+    return false;
+  }
+  switch (runtime.provider) {
+    case "codex":
+      return runtime.metadata.capabilities.includes("workspace-mcp-tools-v1");
+    case "hermes":
+      return runtime.metadata.capabilities.includes("hermes-workspace-mcp-tools-v1");
+    default:
+      return false;
+  }
 }
 
 export function McpToolAccessDialog(props: {
@@ -133,7 +142,7 @@ function McpToolAccessForm({
           </label>
         </fieldset>
         {!canSelect && <p className="text-caption text-muted-foreground">
-          {t(($) => $.tab_body.mcp_config.tool_access.requires_codex)}
+          {t(($) => $.tab_body.mcp_config.tool_access.requires_runtime)}
         </p>}
         {mode === "selected" && (
           <div className="space-y-3">
@@ -182,7 +191,7 @@ function McpToolAccessForm({
               {result.data?.error_code === "unauthorized"
                 ? t(($) => $.tab_body.mcp_config.tool_access.unauthorized)
                 : probe.error instanceof ApiError && probe.error.status === 409
-                  ? t(($) => $.tab_body.mcp_config.tool_access.requires_codex)
+                  ? t(($) => $.tab_body.mcp_config.tool_access.requires_runtime)
                   : t(($) => $.tab_body.mcp_config.tool_access.load_failed)}
             </p>}
             {discovered?.length === 0 && (

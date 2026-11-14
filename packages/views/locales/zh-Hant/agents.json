@@ -576,7 +576,7 @@
         "mode": "存取模式",
         "all": "所有工具",
         "selected": "僅限所選工具",
-        "requires_codex": "限制工具需要使用 Streamable HTTP、內建的本機 Codex 執行環境，並更新 Multica 背景程序。",
+        "requires_runtime": "限制工具需要使用 Streamable HTTP、內建的本機 Codex 或 Hermes 執行環境，並更新 Multica 背景程序。",
         "discovery_runtime": "用於探索工具的執行環境",
         "no_runtime": "你沒有連線中的相容執行環境",
         "loading": "正在載入執行環境…",

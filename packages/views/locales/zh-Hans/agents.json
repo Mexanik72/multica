@@ -576,7 +576,7 @@
         "mode": "访问模式",
         "all": "所有工具",
         "selected": "仅限所选工具",
-        "requires_codex": "限制工具需要使用 Streamable HTTP、内置的本地 Codex 运行时，并更新 Multica 守护进程。",
+        "requires_runtime": "限制工具需要使用 Streamable HTTP、内置的本地 Codex 或 Hermes 运行时，并更新 Multica 守护进程。",
         "discovery_runtime": "用于发现工具的运行时",
         "no_runtime": "你没有在线的兼容运行时",
         "loading": "正在加载运行时…",

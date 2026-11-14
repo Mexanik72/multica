@@ -435,7 +435,7 @@
         "mode": "접근 모드",
         "all": "모든 도구",
         "selected": "선택한 도구만",
-        "requires_codex": "제한을 적용하려면 Streamable HTTP, 기본 제공 로컬 Codex 런타임, 최신 Multica 데몬이 필요합니다.",
+        "requires_runtime": "제한을 적용하려면 Streamable HTTP, 기본 제공 로컬 Codex 또는 Hermes 런타임, 최신 Multica 데몬이 필요합니다.",
         "discovery_runtime": "도구를 조회할 런타임",
         "no_runtime": "소유한 호환 런타임 중 온라인 상태인 것이 없습니다",
         "loading": "런타임을 불러오는 중…",

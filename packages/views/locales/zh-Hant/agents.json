@@ -576,7 +576,7 @@
         "mode": "存取模式",
         "all": "所有工具",
         "selected": "僅限所選工具",
-        "requires_runtime": "限制工具需要使用 Streamable HTTP、內建的本機 Codex 或 Hermes 執行環境，並更新 Multica 背景程序。",
+        "requires_runtime": "限制工具需要使用 Streamable HTTP、內建的本機 Hermes 執行環境，並更新 Multica 背景程序。",
         "agent_runtime": "Agent 執行環境 · {{runtime}}",
         "read": "讀取",
         "read_write": "讀取與寫入",

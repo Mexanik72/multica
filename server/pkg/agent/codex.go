@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -389,13 +387,7 @@ func buildCodexArgs(opts ExecOptions, logger *slog.Logger) []string {
 	if opts.ServiceTier == codexFastServiceTier {
 		launchArgs = enforceCodexFastMode(launchArgs, logger)
 	}
-	args = append(args, launchArgs...)
-	for _, name := range slices.Sorted(maps.Keys(opts.CodexPinnedMCPURLs)) {
-		// Project config is loaded after the user file. Pin the broker URL
-		// above both layers; upstream credentials stay inside the daemon.
-		args = append(args, "-c", "mcp_servers."+name+".url="+strconv.Quote(opts.CodexPinnedMCPURLs[name]))
-	}
-	return args
+	return append(args, launchArgs...)
 }
 
 // NormalizeCodexLaunchArgs returns the user-supplied Codex args (extra then

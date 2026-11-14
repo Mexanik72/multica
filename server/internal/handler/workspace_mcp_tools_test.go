@@ -64,10 +64,9 @@ func TestClaimRestrictedWorkspaceMCP(t *testing.T) {
 		reject     bool
 		message    string
 	}{
-		{name: "capable Codex daemon", provider: "codex", capability: protocol.DaemonCapabilityWorkspaceMCPToolsV1},
-		{name: "old Codex daemon", provider: "codex", reject: true, message: "update the Multica daemon"},
+		{name: "unsupported Codex runtime", provider: "codex", capability: protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1, reject: true, message: "requires a local built-in Hermes runtime"},
 		{name: "capable Hermes daemon", provider: "hermes", capability: protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1},
-		{name: "Codex-only daemon for Hermes", provider: "hermes", capability: protocol.DaemonCapabilityWorkspaceMCPToolsV1, reject: true, message: "update the Multica daemon"},
+		{name: "Codex-only daemon for Hermes", provider: "hermes", capability: "workspace-mcp-tools-v1", reject: true, message: "update the Multica daemon"},
 		{name: "agent name collision", provider: "hermes", capability: protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1, ownConfig: `{"mcp":{"shared":{"command":"other"}}}`, reject: true, message: "conflicts"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

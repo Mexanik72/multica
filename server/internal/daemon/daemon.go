@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8290,9 +8289,6 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	}
 	if task.Agent != nil {
 		agentMcpConfig = task.Agent.McpConfig
-		if len(task.Agent.RestrictedWorkspaceMCP) > 0 && (len(agentMcpConfig) == 0 || bytes.Equal(bytes.TrimSpace(agentMcpConfig), []byte("null"))) {
-			agentMcpConfig = json.RawMessage(`{"mcpServers":{}}`)
-		}
 		effectiveMcpConfig = agentMcpConfig
 		if merged, mergeErr := mergeRuntimeAndAgentMcpConfig(provider, agentMcpConfig); mergeErr != nil {
 			taskLog.Warn("mcp_config: runtime merge failed; using agent configuration only",
@@ -8313,27 +8309,18 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			cursorMcpAuthSource = strings.TrimSpace(task.Agent.CustomEnv[execenv.CursorMcpAuthSourceEnv])
 		}
 	}
-	var codexPinnedMCPURLs map[string]string
 	var hermesRestrictedMCP json.RawMessage
 	if task.Agent != nil && len(task.Agent.RestrictedWorkspaceMCP) > 0 {
 		rt := d.findRuntime(task.RuntimeID)
-		if protocol.WorkspaceMCPToolsCapability(provider) == "" || rt == nil || rt.ProfileID != "" {
-			return TaskResult{}, errors.New("restricted MCP tools require a local built-in Codex or Hermes runtime")
+		if provider != "hermes" || rt == nil || rt.ProfileID != "" {
+			return TaskResult{}, errors.New("restricted MCP tools require a local built-in Hermes runtime")
 		}
-		mounts, pinnedURLs, brokers, err := startWorkspaceMCPBrokers(ctx, task.Agent.RestrictedWorkspaceMCP)
+		mounts, brokers, err := startWorkspaceMCPBrokers(ctx, task.Agent.RestrictedWorkspaceMCP)
 		if err != nil {
 			return TaskResult{}, fmt.Errorf("prepare restricted MCP servers: %w", err)
 		}
 		defer brokers.Close()
-		if provider == "hermes" {
-			hermesRestrictedMCP = mounts
-		} else {
-			effectiveMcpConfig, err = mergeTaskRemoteMCPConfig(effectiveMcpConfig, mounts)
-			if err != nil {
-				return TaskResult{}, fmt.Errorf("apply restricted MCP configuration: %w", err)
-			}
-			codexPinnedMCPURLs = pinnedURLs
-		}
+		hermesRestrictedMCP = mounts
 	}
 	// Decode openclaw-specific runtime_config knobs once so reuse / prepare /
 	// ExecOptions all see the same mode + gateway pin (issue #3260). Parse
@@ -9161,7 +9148,6 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ExtraArgs:              extraArgs,
 		CustomArgs:             customArgs,
 		McpConfig:              mcpConfig,
-		CodexPinnedMCPURLs:     codexPinnedMCPURLs,
 		ThinkingLevel:          thinkingLevel,
 		ServiceTier:            serviceTier,
 		OpenclawMode:           openclawMode,

@@ -576,7 +576,7 @@
         "mode": "Modo de acceso",
         "all": "Todas las herramientas",
         "selected": "Solo las seleccionadas",
-        "requires_runtime": "Las restricciones requieren Streamable HTTP y un runtime local integrado de Codex o Hermes con el daemon de Multica actualizado.",
+        "requires_runtime": "Las restricciones requieren Streamable HTTP y un runtime local integrado de Hermes con el daemon de Multica actualizado.",
         "agent_runtime": "Runtime del agente · {{runtime}}",
         "read": "Lectura",
         "read_write": "Lectura y escritura",

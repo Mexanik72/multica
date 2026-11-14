@@ -3022,7 +3022,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		overlayForNameCheck = task.RuntimeMcpOverlay
 	}
 	bindings, restricted, err := splitWorkspaceMCPBindings(bound, runtime,
-		requestHasClientCapability(r, protocol.WorkspaceMCPToolsCapability(runtime.Provider)), mcpConfig, overlayForNameCheck)
+		requestHasClientCapability(r, protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1), mcpConfig, overlayForNameCheck)
 	if err != nil {
 		return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
 			r.Context(), task, err.Error(), taskfailure.ReasonAgentMissingConfig,

@@ -26,7 +26,7 @@ func (d *Daemon) handleWorkspaceMCPProbe(ctx context.Context, runtimeID, request
 	}
 	if err := d.client.getJSON(probeCtx, jobPath, &job); err == nil {
 		rt := d.findRuntime(runtimeID)
-		if rt != nil && protocol.WorkspaceMCPToolsCapability(rt.Provider) != "" && rt.ProfileID == "" {
+		if rt != nil && rt.Provider == "hermes" && rt.ProfileID == "" {
 			outcome.WorkspaceMCPToolList, outcome.ErrorCode = probeWorkspaceMCP(probeCtx, job.Config)
 			if outcome.ErrorCode == "" {
 				outcome.Status = "completed"

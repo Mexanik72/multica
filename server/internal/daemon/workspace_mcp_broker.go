@@ -84,25 +84,24 @@ func workspaceMCPClient() *http.Client {
 	}
 }
 
-func startWorkspaceMCPBrokers(ctx context.Context, assignments []protocol.RestrictedWorkspaceMCP) (json.RawMessage, map[string]string, *remoteMCPBrokerSet, error) {
+func startWorkspaceMCPBrokers(ctx context.Context, assignments []protocol.RestrictedWorkspaceMCP) (json.RawMessage, *remoteMCPBrokerSet, error) {
 	set := &remoteMCPBrokerSet{}
 	mounts := make(map[string]map[string]any, len(assignments))
-	pinnedURLs := make(map[string]string, len(assignments))
 	for _, binding := range assignments {
 		endpoint, headers, err := workspaceMCPEndpoint(binding.Config)
 		if err != nil {
 			set.Close()
-			return nil, nil, nil, fmt.Errorf("restricted MCP server %q: %w", binding.Name, err)
+			return nil, nil, fmt.Errorf("restricted MCP server %q: %w", binding.Name, err)
 		}
 		token, err := randomBrokerToken()
 		if err != nil {
 			set.Close()
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			set.Close()
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		client := workspaceMCPClient()
 		proxy := &remoteMCPProxy{
@@ -124,14 +123,13 @@ func startWorkspaceMCPBrokers(ctx context.Context, assignments []protocol.Restri
 			"type": "http", "url": brokerURL,
 			"headers": map[string]string{workspaceMCPBrokerHeader: token},
 		}
-		pinnedURLs[binding.Name] = brokerURL
 	}
 	raw, err := json.Marshal(map[string]any{"mcpServers": mounts})
 	if err != nil {
 		set.Close()
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return raw, pinnedURLs, set, nil
+	return raw, set, nil
 }
 
 func canonicalWorkspaceMCPRequest(raw []byte, request *remoteMCPRequest) ([]byte, error) {

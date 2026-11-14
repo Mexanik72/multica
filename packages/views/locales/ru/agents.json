@@ -630,7 +630,7 @@
         "mode": "Режим доступа",
         "all": "Все инструменты",
         "selected": "Только выбранные",
-        "requires_runtime": "Для ограничений нужны Streamable HTTP, локальный встроенный runtime Codex или Hermes и обновлённый daemon Multica.",
+        "requires_runtime": "Для ограничений нужны Streamable HTTP, локальный встроенный runtime Hermes и обновлённый daemon Multica.",
         "agent_runtime": "Runtime агента · {{runtime}}",
         "read": "Чтение",
         "read_write": "Чтение и запись",

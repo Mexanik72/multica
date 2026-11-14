@@ -435,7 +435,7 @@
         "mode": "접근 모드",
         "all": "모든 도구",
         "selected": "선택한 도구만",
-        "requires_runtime": "제한을 적용하려면 Streamable HTTP, 기본 제공 로컬 Codex 또는 Hermes 런타임, 최신 Multica 데몬이 필요합니다.",
+        "requires_runtime": "제한을 적용하려면 Streamable HTTP, 기본 제공 로컬 Hermes 런타임, 최신 Multica 데몬이 필요합니다.",
         "agent_runtime": "에이전트 런타임 · {{runtime}}",
         "read": "읽기",
         "read_write": "읽기 및 쓰기",

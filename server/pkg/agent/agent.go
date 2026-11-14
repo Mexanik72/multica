@@ -119,8 +119,6 @@ type ExecOptions struct {
 	CustomArgs       []string        // per-agent CLI arguments appended after ExtraArgs
 	QwenpawWorkspace string          // per-task QwenPaw workspace directory (passed as --workspace to qwenpaw acp); empty when not applicable
 	McpConfig        json.RawMessage // if non-nil, MCP server config to pass via --mcp-config
-	// CodexPinnedMCPURLs pins restricted workspace assignments to daemon brokers.
-	CodexPinnedMCPURLs map[string]string
 	// ThinkingLevel is the runtime-native reasoning/effort value (e.g.
 	// Claude's "low|medium|high|xhigh|max", Codex's "none|minimal|low|
 	// medium|high|xhigh", OpenCode's model variant names). Empty means

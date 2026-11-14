@@ -271,8 +271,8 @@ func (h *Handler) ProbeAssignedWorkspaceMcp(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !workspaceMCPRuntimeSupported(rt) ||
-		!runtimeHasCapability(rt.Metadata, protocol.WorkspaceMCPToolsCapability(rt.Provider)) {
-		writeError(w, http.StatusConflict, "tool discovery requires a local Codex or Hermes runtime with an updated Multica daemon")
+		!runtimeHasCapability(rt.Metadata, protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1) {
+		writeError(w, http.StatusConflict, "tool discovery requires a local built-in Hermes runtime with an updated Multica daemon")
 		return
 	}
 	req, err := h.McpProbeStore.Create(r.Context(), McpProbeCreate{

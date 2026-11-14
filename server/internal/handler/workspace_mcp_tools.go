@@ -89,7 +89,7 @@ func (h *Handler) SetAgentMcpToolAccess(w http.ResponseWriter, r *http.Request) 
 }
 
 func workspaceMCPRuntimeSupported(runtime db.AgentRuntime) bool {
-	return protocol.WorkspaceMCPToolsCapability(runtime.Provider) != "" && runtime.RuntimeMode == "local" && !runtime.ProfileID.Valid
+	return runtime.Provider == "hermes" && runtime.RuntimeMode == "local" && !runtime.ProfileID.Valid
 }
 
 func splitWorkspaceMCPBindings(bound []db.ListEnabledAgentMcpServersRow, runtime db.AgentRuntime, capable bool, configs ...json.RawMessage) ([]WorkspaceMcpBinding, []protocol.RestrictedWorkspaceMCP, error) {
@@ -101,7 +101,7 @@ func splitWorkspaceMCPBindings(bound []db.ListEnabledAgentMcpServersRow, runtime
 			continue
 		}
 		if !workspaceMCPRuntimeSupported(runtime) || mcpTransportOf(server.Config) != "http" {
-			return nil, nil, fmt.Errorf("restricted MCP server %q requires a local built-in Codex or Hermes runtime and Streamable HTTP", server.Name)
+			return nil, nil, fmt.Errorf("restricted MCP server %q requires a local built-in Hermes runtime and Streamable HTTP", server.Name)
 		}
 		if !capable {
 			return nil, nil, fmt.Errorf("update the Multica daemon to run with restricted MCP server %q", server.Name)

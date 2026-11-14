@@ -204,7 +204,6 @@ func daemonHTTPClientCapabilities() string {
 
 func daemonCommonCapabilities() []string {
 	return []string{
-		protocol.DaemonCapabilityWorkspaceMCPToolsV1,
 		protocol.DaemonCapabilityHermesWorkspaceMCPToolsV1,
 		protocol.DaemonCapabilitySkillBundlesV1,
 		protocol.DaemonCapabilityCoalescedCommentsV1,

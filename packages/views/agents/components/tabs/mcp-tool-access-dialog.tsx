@@ -23,18 +23,9 @@ import { Loader2 } from "@multica/ui/icons";
 import { useT } from "../../../i18n";
 
 function supportsMcpToolAccess(runtime: AgentRuntime | null) {
-  if (runtime?.runtime_mode !== "local" || runtime.profile_id ||
-      !Array.isArray(runtime.metadata?.capabilities)) {
-    return false;
-  }
-  switch (runtime.provider) {
-    case "codex":
-      return runtime.metadata.capabilities.includes("workspace-mcp-tools-v1");
-    case "hermes":
-      return runtime.metadata.capabilities.includes("hermes-workspace-mcp-tools-v1");
-    default:
-      return false;
-  }
+  return runtime?.provider === "hermes" && runtime.runtime_mode === "local" &&
+    !runtime.profile_id && Array.isArray(runtime.metadata?.capabilities) &&
+    runtime.metadata.capabilities.includes("hermes-workspace-mcp-tools-v1");
 }
 
 export function McpToolAccessDialog(props: {

@@ -39,7 +39,7 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await page.route(`**/api/workspaces/${workspace.id}/mcp-servers`, (route) => route.fulfill({ json: [server] }));
     await page.route(`**/api/agents/${agentId}/mcp-servers/${serverId}/tool-access`, async (route) => {
       const policy = route.request().postDataJSON();
-      expect(policy).toEqual({ mode: "selected", tools: ["saved_tool", "search_issues"] });
+      expect(policy).toEqual({ mode: "selected", tools: ["create_issue", "saved_tool", "search_issues", "update_issue"] });
       server = { ...server, allowed_tools: policy.tools };
       await route.fulfill({ json: [server] });
     });
@@ -93,6 +93,7 @@ test("keeps saved MCP tool selections through discovery failure and retry", asyn
     await expect(otherWriteTool).not.toBeChecked();
     await expect(dialog.getByRole("checkbox", { name: /saved_tool/ })).toBeChecked();
     await expect(dialog.getByText("Unavailable on this runtime")).toBeVisible();
+    await writeSwitch.click();
     await info.attach("MCP tool access", {
       body: await page.screenshot({ animations: "disabled" }), contentType: "image/png",
     });

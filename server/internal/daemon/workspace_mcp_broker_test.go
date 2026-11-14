@@ -163,7 +163,7 @@ func TestWorkspaceMCPHermesConfigUsesBrokerInsteadOfMachineServer(t *testing.T) 
 	defer upstream.Close()
 
 	raw, _ := json.Marshal(map[string]string{"url": upstream.URL})
-	mounts, _, brokers, err := startWorkspaceMCPBrokers(t.Context(), []protocol.RestrictedWorkspaceMCP{
+	mounts, brokers, err := startWorkspaceMCPBrokers(t.Context(), []protocol.RestrictedWorkspaceMCP{
 		{Name: "issues", Config: raw, Tools: []string{"search_issues"}},
 	})
 	if err != nil {

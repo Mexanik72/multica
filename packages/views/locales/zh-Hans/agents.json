@@ -717,6 +717,11 @@
       "save_failed_toast": "保存路由配置失败"
     },
     "skills": {
+      "hermes_title": "Hermes 技能",
+      "hermes_profile_badge": "Hermes 配置档案",
+      "hermes_agent_badge": "由智能体创建",
+      "hermes_preview_unavailable": "无法加载技能文件。请确认守护进程在线且已更新。",
+      "hermes_unsupported": "更新守护进程即可查看该智能体的 Hermes 技能。",
       "assigned_title": "分配给智能体",
       "assigned_hint": "关闭后暂停使用，仍保留分配。",
       "runtime_title": "从运行时继承",

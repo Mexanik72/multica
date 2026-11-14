@@ -576,6 +576,11 @@
       "save_failed_toast": "라우팅 설정 저장 실패"
     },
     "skills": {
+      "hermes_title": "Hermes 스킬",
+      "hermes_profile_badge": "Hermes 프로필",
+      "hermes_agent_badge": "에이전트가 생성",
+      "hermes_preview_unavailable": "스킬 파일을 불러오지 못했습니다. 데몬이 온라인이고 최신 버전인지 확인하세요.",
+      "hermes_unsupported": "이 에이전트의 Hermes 스킬을 보려면 데몬을 업데이트하세요.",
       "assigned_title": "에이전트에 할당됨",
       "assigned_hint": "끄면 할당은 유지한 채 사용을 중지합니다.",
       "runtime_title": "런타임에서 상속",

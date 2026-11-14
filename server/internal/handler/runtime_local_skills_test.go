@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -121,7 +122,7 @@ func countSkillFiles(t *testing.T, skillID string) int {
 func TestInMemoryLocalSkillListStore_PreservesSummaries(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryLocalSkillListStore()
-	req, err := store.Create(ctx, "runtime-xyz")
+	req, err := store.Create(ctx, "runtime-xyz", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestInMemoryLocalSkillListStore_PreservesSummaries(t *testing.T) {
 		t.Fatalf("unmarshal report body: %v", err)
 	}
 
-	if err := store.Complete(ctx, req.ID, parsed.Skills, true, nil, false); err != nil {
+	if err := store.Complete(ctx, req.ID, parsed.Skills, true, nil, false, nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 	got, err := store.Get(ctx, req.ID)
@@ -182,13 +183,13 @@ func TestInMemoryLocalSkillListStore_PreservesSummaries(t *testing.T) {
 func TestInMemoryLocalSkillListStore_TimesOutRunningRequests(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryLocalSkillListStore()
-	req, err := store.Create(ctx, "runtime-xyz")
+	req, err := store.Create(ctx, "runtime-xyz", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	req.Status = RuntimeLocalSkillRunning
+	store.requests[req.ID].Status = RuntimeLocalSkillRunning
 	startedAt := time.Now().Add(-61 * time.Second)
-	req.RunStartedAt = &startedAt
+	store.requests[req.ID].RunStartedAt = &startedAt
 
 	got, err := store.Get(ctx, req.ID)
 	if err != nil {
@@ -340,6 +341,77 @@ func TestInitiateListLocalSkills_WakesDaemon(t *testing.T) {
 	if len(recorder.hints) != 1 || recorder.hints[0] != want {
 		t.Fatalf("pending-work hints = %v, want [%s]", recorder.hints, want)
 	}
+}
+
+func TestHermesAgentSkillInventoryRequest(t *testing.T) {
+	runtimeID := dbfx.Runtime(t, "Hermes skills runtime", testutil.Cols{
+		"runtime_mode": "local", "provider": "hermes", "visibility": "public", "daemon_id": "hermes-skill-inventory-test",
+	})
+	agentID := dbfx.Agent(t, "Hermes skills agent", runtimeID, testutil.Cols{
+		"runtime_mode": "local", "custom_args": testutil.Raw(`'["--profile","research"]'::jsonb`),
+		"custom_env": testutil.Raw(`'{"HERMES_HOME":"/test/hermes","API_KEY":"secret"}'::jsonb`),
+	})
+	otherAgentID := dbfx.Agent(t, "Other Hermes skills agent", "")
+	otherUserID := createRuntimeLocalSkillTestMember(t, "member")
+	h := *testHandler
+	h.LocalSkillListStore = NewInMemoryLocalSkillListStore()
+
+	path := "/api/runtimes/" + runtimeID + "/local-skills"
+	initiate := func(userID, agentID string) *http.Request {
+		return withURLParams(newRequestAsUser(userID, http.MethodPost, path+"?agent_id="+agentID, nil), "runtimeId", runtimeID)
+	}
+	testutil.Call(t, h.InitiateListLocalSkills, initiate(testUserID, otherAgentID)).Want(http.StatusNotFound)
+	testutil.Call(t, h.InitiateListLocalSkills, initiate(otherUserID, agentID)).Want(http.StatusForbidden)
+	var request RuntimeLocalSkillListRequest
+	testutil.Call(t, h.InitiateListLocalSkills, initiate(testUserID, agentID)).Want(http.StatusOK).JSON(&request)
+	pending, _, err := h.processHeartbeat(t.Context(), runtimeID, false)
+	if err != nil || pending.PendingLocalSkills == nil || pending.PendingLocalSkills.HermesAgent == nil {
+		t.Fatalf("no Hermes agent in pending inventory request: %+v, %v", pending, err)
+	}
+	scope := pending.PendingLocalSkills.HermesAgent
+	if scope.ID != agentID || scope.Home != "/test/hermes" || strings.Join(scope.Args, " ") != "--profile research" {
+		t.Fatalf("unexpected Hermes scope: %+v", scope)
+	}
+	report := withURLParams(newOwnerDaemonRequest(http.MethodPost, path+"/"+request.ID+"/result", map[string]any{
+		"status": "completed",
+		"skills": []RuntimeLocalSkillSummary{{Key: "machine-wide"}},
+	}), "runtimeId", runtimeID, "requestId", request.ID)
+	testutil.Call(t, h.ReportLocalSkillListResult, report).Want(http.StatusOK)
+	poll := func(userID string) *http.Request {
+		return withURLParams(newRequestAsUser(userID, http.MethodGet, path+"/"+request.ID, nil), "runtimeId", runtimeID, "requestId", request.ID)
+	}
+	testutil.Call(t, h.GetLocalSkillListRequest, poll(otherUserID)).Want(http.StatusForbidden)
+	var result RuntimeLocalSkillListRequest
+	testutil.Call(t, h.GetLocalSkillListRequest, poll(testUserID)).Want(http.StatusOK).JSON(&result)
+	if result.AgentID != agentID || result.Status != RuntimeLocalSkillCompleted || result.Supported || len(result.Skills) != 0 {
+		t.Fatalf("old daemon cannot supply scoped results: %+v", result)
+	}
+
+	previewPath := path + "?agent_id=" + agentID + "&skill_key=reviews/checklist"
+	initPreview := func(userID string) *http.Request {
+		return withURLParams(newRequestAsUser(userID, http.MethodPost, previewPath, nil), "runtimeId", runtimeID)
+	}
+	testutil.Call(t, h.InitiateListLocalSkills, initPreview(otherUserID)).Want(http.StatusForbidden)
+	testutil.Call(t, h.InitiateListLocalSkills, initPreview(testUserID)).Want(http.StatusOK).JSON(&request)
+	pending, _, err = h.processHeartbeat(t.Context(), runtimeID, false)
+	if err != nil || pending.PendingLocalSkills == nil || pending.PendingLocalSkills.HermesAgent == nil ||
+		pending.PendingLocalSkills.HermesAgent.SkillKey != "reviews/checklist" {
+		t.Fatalf("preview request did not preserve the skill key: %+v, %v", pending, err)
+	}
+	report = withURLParams(newOwnerDaemonRequest(http.MethodPost, path+"/"+request.ID+"/result", map[string]any{
+		"status": "completed", "agent_id": agentID, "skill_key": "reviews/checklist",
+		"preview": protocol.HermesSkillPreview{Content: "# Review checklist", Files: []protocol.HermesSkillPreviewFile{
+			{Path: "references/build.md", Content: "Check the build"},
+		}},
+	}), "runtimeId", runtimeID, "requestId", request.ID)
+	testutil.Call(t, h.ReportLocalSkillListResult, report).Want(http.StatusOK)
+	testutil.Call(t, h.GetLocalSkillListRequest, poll(otherUserID)).Want(http.StatusForbidden)
+	testutil.Call(t, h.GetLocalSkillListRequest, poll(testUserID)).Want(http.StatusOK).JSON(&result)
+	if result.Preview == nil || result.Preview.Content != "# Review checklist" ||
+		len(result.Preview.Files) != 1 || result.Preview.Files[0].Content != "Check the build" {
+		t.Fatalf("unexpected skill preview: %+v", result.Preview)
+	}
+
 }
 
 func TestListLocalSkills_RejectsNonMember(t *testing.T) {

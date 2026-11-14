@@ -771,6 +771,11 @@
       "save_failed_toast": "Не удалось сохранить конфигурацию маршрутизации"
     },
     "skills": {
+      "hermes_title": "Навыки Hermes",
+      "hermes_profile_badge": "Профиль Hermes",
+      "hermes_agent_badge": "Создан агентом",
+      "hermes_preview_unavailable": "Не удалось загрузить файлы навыка. Проверьте, что демон онлайн и обновлён.",
+      "hermes_unsupported": "Обновите демон, чтобы увидеть навыки Hermes этого агента.",
       "assigned_title": "Назначено агенту",
       "assigned_hint": "Отключите навык, чтобы приостановить его использование, не удаляя.",
       "runtime_title": "Унаследовано от среды выполнения",

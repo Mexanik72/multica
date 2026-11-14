@@ -110,7 +110,7 @@ Les skills qui existent déjà dans le dépôt ne sont jamais écrasés. En cas 
 Codex, Hermes et OpenClaw sont traités un peu différemment :
 
 - Codex utilise un `CODEX_HOME` propre à chaque exécution ; les skills ne sont donc jamais écrits dans le répertoire Codex au niveau du système.
-- Hermes utilise un `HERMES_HOME` propre à chaque exécution. La configuration locale existante reste lisible, mais les skills rattachés et les données de session sont isolés par exécution. Cette isolation ne s'applique que lorsque des skills sont rattachés à l'agent ; les exécutions sans skill rattaché utilisent le répertoire Hermes d'origine de la machine.
+- Hermes lit la configuration et les skills du profil sélectionné. Multica fournit un `HERMES_HOME` géré à chaque exécution pour les skills attribués et l’état de la conversation. Les skills créés pendant les tâches Multica sont enregistrés sur la machine du démon pour cet agent et ce profil. L’onglet **Compétences** de l’agent les affiche avec les skills du profil dans les applications web et de bureau lorsque l’environnement est en ligne.
 - OpenClaw utilise `skills/` sous le répertoire de travail de l'exécution en cours, et la configuration propre à l'exécution définit ce répertoire comme espace de travail.
 
 Pour créer et rattacher des skills, consultez [Skills](/skills).

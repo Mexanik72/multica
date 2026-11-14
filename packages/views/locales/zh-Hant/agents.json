@@ -717,6 +717,11 @@
       "save_failed_toast": "儲存路由配置失敗"
     },
     "skills": {
+      "hermes_title": "Hermes 技能",
+      "hermes_profile_badge": "Hermes 設定檔",
+      "hermes_agent_badge": "由代理建立",
+      "hermes_preview_unavailable": "無法載入技能檔案。請確認常駐程式在線且已更新。",
+      "hermes_unsupported": "更新常駐程式即可查看此代理的 Hermes 技能。",
       "assigned_title": "分配給 AI 代理",
       "assigned_hint": "關閉後暫停使用，仍保留分配。",
       "runtime_title": "從執行時繼承",

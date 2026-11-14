@@ -576,6 +576,11 @@
       "save_failed_toast": "ルーティング設定の保存に失敗しました"
     },
     "skills": {
+      "hermes_title": "Hermes のスキル",
+      "hermes_profile_badge": "Hermes プロファイル",
+      "hermes_agent_badge": "エージェントが作成",
+      "hermes_preview_unavailable": "スキルのファイルを読み込めませんでした。デーモンがオンラインで最新か確認してください。",
+      "hermes_unsupported": "このエージェントの Hermes スキルを表示するには、デーモンを更新してください。",
       "assigned_title": "エージェントに割り当て済み",
       "assigned_hint": "オフにすると割り当てを残したまま使用を停止できます。",
       "runtime_title": "ランタイムから継承",

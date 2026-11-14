@@ -112,7 +112,7 @@ Skills that already exist in the repository are never overwritten. On a name col
 Codex, Hermes, and OpenClaw are handled slightly differently:
 
 - Codex uses a per-run `CODEX_HOME`, so skills are never written into the system-level Codex directory.
-- Hermes uses a per-run `HERMES_HOME`. Existing local configuration is still readable, but bound skills and session data are isolated per run. This isolation kicks in only when the agent has skills bound; runs without bound skills use the machine's original Hermes home.
+- Hermes reads the selected profile’s configuration and skills. Multica gives each run a managed `HERMES_HOME` for assigned skills and conversation state. Skills created during Multica tasks are saved on the daemon for that agent and profile. The web and desktop agent’s **Skills** tab shows both profile skills and skills created in Multica while the runtime is online.
 - OpenClaw uses `skills/` under the current run's working directory, and the per-run configuration sets that directory as the workspace.
 
 For creating and binding skills, see [Skills](/skills).

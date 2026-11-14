@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
 import type {
   CreateRuntimeLocalSkillImportRequest,
+  HermesSkillPreview,
   RuntimeLocalSkillImportResult,
   RuntimeLocalSkillsResult,
 } from "../types";
@@ -26,31 +27,69 @@ const POLL_TIMEOUT_MS = 30_000;
 // and maxLocalSkillImportBatch in server/internal/handler/daemon.go.
 const IMPORT_POLL_TIMEOUT_MS = 4 * 60_000; // 4 minutes
 
-export async function resolveRuntimeLocalSkills(
+async function requestRuntimeLocalSkills(
   runtimeId: string,
-): Promise<RuntimeLocalSkillsResult> {
-  const initial = await api.initiateListLocalSkills(runtimeId);
+  agent?: { id: string; workspaceId: string; skillKey?: string },
+  signal?: AbortSignal,
+) {
+  const initial = await api.initiateListLocalSkills(runtimeId, agent);
   const start = Date.now();
   let current = initial;
 
   while (current.status === "pending" || current.status === "running") {
+    signal?.throwIfAborted();
     if (Date.now() - start > POLL_TIMEOUT_MS) {
       throw new Error("runtime local skill discovery timed out");
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    current = await api.getListLocalSkillsResult(runtimeId, initial.id);
+    signal?.throwIfAborted();
+    current = await api.getListLocalSkillsResult(runtimeId, initial.id, agent?.workspaceId);
   }
 
-  if (current.status === "failed" || current.status === "timeout") {
+  if (current.status !== "completed") {
     throw new Error(current.error || "runtime local skill discovery failed");
+  }
+
+  return current;
+}
+
+export async function resolveRuntimeLocalSkills(
+  runtimeId: string,
+  agent?: { id: string; workspaceId: string },
+): Promise<RuntimeLocalSkillsResult> {
+  const current = await requestRuntimeLocalSkills(runtimeId, agent);
+  if (agent && current.agent_id !== agent.id) {
+    return { skills: [], supported: false, mcpServers: [], mcpSupported: false };
   }
 
   return {
     skills: current.skills ?? [],
     supported: current.supported,
-	mcpServers: current.mcp_servers ?? [],
-	mcpSupported: current.mcp_supported === true,
+    mcpServers: current.mcp_servers ?? [],
+    mcpSupported: current.mcp_supported === true,
   };
+}
+
+export function hermesSkillPreviewOptions(
+  runtimeId: string | null,
+  workspaceId: string,
+  agentId: string,
+  skillKey: string | null,
+) {
+  return queryOptions({
+    queryKey: [...runtimeLocalSkillsKeys.all(), workspaceId, runtimeId, agentId, "preview", skillKey] as const,
+    enabled: Boolean(runtimeId && skillKey),
+    gcTime: 0,
+    retry: false,
+    queryFn: async ({ signal }): Promise<HermesSkillPreview> => {
+      if (!runtimeId || !skillKey) throw new Error("Hermes skill selection is missing");
+      const result = await requestRuntimeLocalSkills(runtimeId, { id: agentId, workspaceId, skillKey }, signal);
+      if (!result.supported || result.agent_id !== agentId || result.skill_key !== skillKey || !result.preview) {
+        throw new Error("Hermes skill preview is unavailable");
+      }
+      return result.preview;
+    },
+  });
 }
 
 export async function resolveRuntimeLocalSkillImport(
@@ -92,14 +131,18 @@ export async function resolveRuntimeLocalSkillImport(
   };
 }
 
-export function runtimeLocalSkillsOptions(runtimeId: string | null | undefined) {
+export function runtimeLocalSkillsOptions(
+  runtimeId: string | null | undefined,
+  agent?: { id: string; workspaceId: string },
+) {
+  const queryKey = runtimeId
+    ? runtimeLocalSkillsKeys.forRuntime(runtimeId)
+    : runtimeLocalSkillsKeys.all();
   return queryOptions({
-    queryKey: runtimeId
-      ? runtimeLocalSkillsKeys.forRuntime(runtimeId)
-      : runtimeLocalSkillsKeys.all(),
-    queryFn: () => resolveRuntimeLocalSkills(runtimeId as string),
+    queryKey: agent ? [...queryKey, agent.workspaceId, agent.id] as const : queryKey,
+    queryFn: () => resolveRuntimeLocalSkills(runtimeId as string, agent),
     enabled: Boolean(runtimeId),
-    staleTime: 30_000,
+    staleTime: agent ? 0 : 30_000,
     retry: false,
   });
 }

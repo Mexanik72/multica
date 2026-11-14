@@ -237,14 +237,14 @@ type cancellationLocalSkillStore struct {
 	after  bool
 }
 
-func (s cancellationLocalSkillStore) Create(ctx context.Context, runtimeID string) (*RuntimeLocalSkillListRequest, error) {
+func (s cancellationLocalSkillStore) Create(ctx context.Context, runtimeID, agentID, skillKey string) (*RuntimeLocalSkillListRequest, error) {
 	if !s.after {
 		if s.cancel != nil {
 			s.cancel()
 		}
 		return nil, s.err
 	}
-	req, err := s.LocalSkillListStore.Create(ctx, runtimeID)
+	req, err := s.LocalSkillListStore.Create(ctx, runtimeID, agentID, skillKey)
 	s.cancel()
 	return req, err
 }
@@ -286,7 +286,7 @@ func TestLocalSkillDiscoveryRequestCancellation(t *testing.T) {
 				req := withURLParam(newRequest(http.MethodPost, "/skills", map[string]any{"requestId": uuid.NewString()}), "runtimeId", runtimeID)
 				call := h.InitiateListLocalSkills
 				if operation == "get" {
-					created, err := store.Create(t.Context(), runtimeID)
+					created, err := store.Create(t.Context(), runtimeID, "", "")
 					if err != nil {
 						t.Fatal(err)
 					}

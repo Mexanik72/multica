@@ -1307,6 +1307,11 @@
     "scan_error_rate_limited": "試行回数が多すぎます。数分待ってから再試行してください。",
     "byo_failed_toast": "WeCom ボットを接続できませんでした"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "サーバー URL",
+    "access_token_label": "Bot のアクセストークン"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "Telegram でエージェントと対話し、/issue でタスクを作成できます。",

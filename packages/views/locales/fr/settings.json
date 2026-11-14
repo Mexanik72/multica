@@ -1317,6 +1317,11 @@
     "scan_error_rate_limited": "Trop de tentatives. Patientez quelques minutes, puis réessayez.",
     "byo_failed_toast": "Impossible de connecter le bot WeCom"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "URL du serveur",
+    "access_token_label": "Jeton d’accès du bot"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "Discutez avec les agents dans Telegram ou créez une tâche avec /issue.",

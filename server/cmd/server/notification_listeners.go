@@ -737,11 +737,12 @@ func notifyMentionedMembers(
 		resp := inboxItemToResponse(item)
 		resp["issue_status"] = issueStatus
 		bus.Publish(events.Event{
-			Type:        protocol.EventInboxNew,
-			WorkspaceID: e.WorkspaceID,
-			ActorType:   e.ActorType,
-			ActorID:     e.ActorID,
-			Payload:     map[string]any{"item": resp},
+			Type:                protocol.EventInboxNew,
+			DirectMemberMention: byName,
+			WorkspaceID:         e.WorkspaceID,
+			ActorType:           e.ActorType,
+			ActorID:             e.ActorID,
+			Payload:             map[string]any{"item": resp},
 		})
 	}
 }

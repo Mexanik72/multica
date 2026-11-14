@@ -1307,6 +1307,11 @@
     "scan_error_rate_limited": "尝试次数过多，请几分钟后再试。",
     "byo_failed_toast": "无法连接企业微信机器人"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "服务器 URL",
+    "access_token_label": "机器人访问令牌"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "在 Telegram 中与智能体对话，或用 /issue 创建任务。",

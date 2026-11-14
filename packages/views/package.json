@@ -66,6 +66,7 @@
     "./slack": "./slack/index.ts",
     "./dingtalk": "./dingtalk/index.ts",
     "./wecom": "./wecom/index.ts",
+    "./mattermost": "./mattermost/index.ts",
     "./telegram": "./telegram/index.ts",
     "./invitations": "./invitations/index.ts",
     "./onboarding": "./onboarding/index.ts",

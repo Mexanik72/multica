@@ -1336,6 +1336,11 @@
     "scan_error_rate_limited": "Слишком много попыток. Подождите несколько минут и попробуйте снова.",
     "byo_failed_toast": "Не удалось подключить бота WeCom"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "URL сервера",
+    "access_token_label": "Токен доступа бота"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "Общайтесь с агентами в Telegram или создавайте задачи через /issue.",

@@ -105,6 +105,9 @@ function ChannelConnectSteps({
     setChannel(id);
     setAuthorizing(true);
   };
+  const setupGuide = channel === "mattermost"
+    ? "https://docs.mattermost.com/developers/integrate/reference/bot-accounts"
+    : `https://multica.ai/docs${docsLocalePrefix(i18n.language)}/${channel}-bot-integration`;
   const scanWecom =
     channel === "wecom" &&
     queries.wecom.data?.scan_install_supported === true &&
@@ -227,11 +230,7 @@ function ChannelConnectSteps({
           <Button
             variant="link"
             className="w-fit p-0"
-            onClick={() =>
-              openExternal(
-                `https://multica.ai/docs${docsLocalePrefix(i18n.language)}/${channel === "lark" ? "lark" : channel}-bot-integration`,
-              )
-            }
+            onClick={() => openExternal(setupGuide)}
           >
             {t(($) => $.channels.setup_guide)}
           </Button>
@@ -306,6 +305,7 @@ function ChannelCredentials({
   const qc = useQueryClient();
   const [values, setValues] = useState({
     token: "",
+    serverUrl: "",
     appToken: "",
     clientId: "",
     clientSecret: "",
@@ -320,54 +320,68 @@ function ChannelCredentials({
     label: string;
     secret?: boolean;
     optional?: boolean;
+    url?: boolean;
   }[] =
-    channel === "slack"
+    channel === "mattermost"
       ? [
           {
-            key: "token",
-            label: t(($) => $.slack.byo_bot_token_label),
-            secret: true,
+            key: "serverUrl",
+            label: t(($) => $.mattermost.server_url_label),
+            url: true,
           },
           {
-            key: "appToken",
-            label: t(($) => $.slack.byo_app_token_label),
+            key: "token",
+            label: t(($) => $.mattermost.access_token_label),
             secret: true,
           },
         ]
-      : channel === "dingtalk"
+      : channel === "slack"
         ? [
             {
-              key: "clientId",
-              label: t(($) => $.dingtalk.byo_appkey_label),
+              key: "token",
+              label: t(($) => $.slack.byo_bot_token_label),
               secret: true,
             },
             {
-              key: "clientSecret",
-              label: t(($) => $.dingtalk.byo_appsecret_label),
+              key: "appToken",
+              label: t(($) => $.slack.byo_app_token_label),
               secret: true,
             },
           ]
-        : channel === "wecom"
+        : channel === "dingtalk"
           ? [
-              { key: "botId", label: t(($) => $.wecom.byo_bot_id_label) },
               {
-                key: "secret",
-                label: t(($) => $.wecom.byo_secret_label),
+                key: "clientId",
+                label: t(($) => $.dingtalk.byo_appkey_label),
                 secret: true,
               },
               {
-                key: "botName",
-                label: t(($) => $.wecom.byo_bot_name_label),
-                optional: true,
+                key: "clientSecret",
+                label: t(($) => $.dingtalk.byo_appsecret_label),
+                secret: true,
               },
             ]
-          : [
-              {
-                key: "token",
-                label: t(($) => $.telegram.bot_token_label),
-                secret: true,
-              },
-            ];
+          : channel === "wecom"
+            ? [
+                { key: "botId", label: t(($) => $.wecom.byo_bot_id_label) },
+                {
+                  key: "secret",
+                  label: t(($) => $.wecom.byo_secret_label),
+                  secret: true,
+                },
+                {
+                  key: "botName",
+                  label: t(($) => $.wecom.byo_bot_name_label),
+                  optional: true,
+                },
+              ]
+            : [
+                {
+                  key: "token",
+                  label: t(($) => $.telegram.bot_token_label),
+                  secret: true,
+                },
+              ];
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -396,9 +410,14 @@ function ChannelCredentials({
                   secret: v.secret,
                   bot_name: v.botName || undefined,
                 })
-              : await api.registerTelegramBot(wsId, agentId, {
-                  bot_token: v.token,
-                });
+              : channel === "mattermost"
+                ? await api.registerMattermostBot(wsId, agentId, {
+                    server_url: v.serverUrl,
+                    access_token: v.token,
+                  })
+                : await api.registerTelegramBot(wsId, agentId, {
+                    bot_token: v.token,
+                  });
       if (!installation.id || installation.status !== "active")
         throw new Error(t(($) => $.channels.connect_failed));
       await qc.invalidateQueries({
@@ -444,7 +463,7 @@ function ChannelCredentials({
           <Label htmlFor={`channel-${field.key}`}>{field.label}</Label>
           <Input
             id={`channel-${field.key}`}
-            type={field.secret ? "password" : "text"}
+            type={field.secret ? "password" : field.url ? "url" : "text"}
             autoComplete="off"
             spellCheck={false}
             required={!field.optional}

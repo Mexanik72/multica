@@ -193,6 +193,7 @@ export const LogOut = /* @__PURE__ */ createIcon("LogOut", glyph.LogOut);
 export const Mail = /* @__PURE__ */ createIcon("Mail", glyph.Mail);
 export const MailOpen = /* @__PURE__ */ createIcon("MailOpen", glyph.MailOpen);
 export const MapPin = /* @__PURE__ */ createIcon("MapPin", glyph.MapPin);
+export const Mattermost = /* @__PURE__ */ createIcon("Mattermost", glyph.Mattermost);
 export const Maximize = /* @__PURE__ */ createIcon("Maximize", glyph.Maximize);
 export const Maximize2 = /* @__PURE__ */ createIcon("Maximize2", glyph.Maximize2);
 export const Megaphone = /* @__PURE__ */ createIcon("Megaphone", glyph.Megaphone);

@@ -1307,6 +1307,11 @@
     "scan_error_rate_limited": "嘗試次數過多，請幾分鐘後再試。",
     "byo_failed_toast": "無法連線企業微信機器人"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "伺服器 URL",
+    "access_token_label": "機器人存取權杖"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "在 Telegram 中與 AI 代理對話，或用 /issue 建立任務。",

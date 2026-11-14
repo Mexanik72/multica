@@ -1050,6 +1050,11 @@
     "connection_actions": "{{url}} 작업",
     "webhook_done": "저장했습니다"
   },
+  "mattermost": {
+    "section_title": "Mattermost",
+    "server_url_label": "서버 URL",
+    "access_token_label": "봇 액세스 토큰"
+  },
   "telegram": {
     "section_title": "Telegram",
     "page_description": "Telegram에서 에이전트와 대화하거나 /issue로 태스크를 만드세요.",

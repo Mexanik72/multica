@@ -41,6 +41,7 @@
     "---Automation---",
     "autopilots",
     "issue-wakeups",
+    "reach-a-goal-with-wakeups",
     "---Integrations---",
     "channels",
     "lark-bot-integration",

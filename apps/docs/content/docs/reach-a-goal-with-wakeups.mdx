@@ -1,0 +1,57 @@
+---
+title: Reach a goal with issue wakeups
+description: Give an agent a measurable outcome and bring it back to the same issue when it can make progress.
+---
+
+Use an issue to record the outcome and its acceptance criteria. Add a wakeup to bring the agent back when a dependency changes or it's time to check progress. Each wakeup starts a new [run](/tasks) on the same issue. The agent reads the current state and checks it against the criteria you wrote.
+
+## Define the outcome in an issue
+
+Create an [issue](/issues) with a result someone can verify. Specify where to find the evidence, what the agent can change, and who accepts the result. [Assign it to an agent](/assigning-issues) that can access the repository and verify the outcome.
+
+For example, use **Fix the CSV import regression** as the title and paste this into the description.
+
+```text
+Goal: Import a field such as "Paris, France" without splitting it at the comma.
+
+Acceptance criteria
+- A regression test covers a quoted comma and passes.
+- Required CI checks pass on the latest commit of the linked pull request.
+
+Scope: Change the CSV parser and its tests. Leave merging to the reviewer.
+Evidence: Post the pull request link, test name, and CI result in the issue.
+```
+
+## Bring the agent back when it can act
+
+For the CSV example, link the GitHub pull request directly to the issue and create the wakeup before its checks finish. The rule listens for new CI results after you create it.
+
+1. In the issue sidebar, click **+** next to **Wakeups**.
+2. Under **When**, choose **A linked PR's CI finishes** and select **CI finishes**.
+3. Under **Triggers**, choose **Repeat wakeups** so the agent can check CI again after a fix. Set **Up to** and **Wait up to** to bound the attempts and the wait. Under **Then**, select the option to wake the agent at the deadline if you want a final blocker report.
+4. Under **Wake**, choose the issue's agent.
+5. Under **What to do when woken**, paste the instruction below and click **Create**.
+
+```text
+Read the issue and check its acceptance criteria against the latest PR commit.
+If every criterion is met, post the evidence and move the issue to In Review.
+If a criterion is unmet at the deadline or you lack access, report the blocker and next action.
+If CI fails before the deadline because of this change, fix it within scope and push the fix.
+Leave merging and marking the issue Done to the reviewer.
+```
+
+CI can finish with a pass or a failure. Check the actual result on the latest commit before accepting the issue.
+
+For a goal that depends on a different signal, choose the relevant wakeup. [See all wakeup conditions](/issue-wakeups#conditions).
+
+| When the agent can make progress | Wakeup to use |
+| --- | --- |
+| A separate prerequisite issue reaches Done | **Another issue's status** → **is done** |
+| An external source needs periodic checks | **Check regularly** with an end date |
+| The last sub-issue in a stage closes | Use the [system wakeup on the parent issue](/issue-wakeups#child-done) |
+
+## Review the evidence and close the issue
+
+1. Open the issue and check the evidence against each acceptance criterion. The wakeup's **Trigger history** shows when it ran, and the issue comments hold the agent's findings.
+2. If a criterion is still open, comment with what's missing. If the wakeup has ended, check its limit or deadline before arranging another run.
+3. When all criteria are met, move the issue to **Done**. Multica turns off its wakeups and withdraws wakeup runs that are still waiting to start. If the issue stays open for review and you have enough evidence, turn off the repeating rule in the sidebar.

@@ -1,8 +1,10 @@
 package mattermost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -21,6 +23,7 @@ import (
 type mentionTestQueries struct {
 	workspaces map[pgtype.UUID]string
 	recipient  pgtype.UUID
+	profile    db.GetMattermostMentionUsernameRow
 }
 
 func (q mentionTestQueries) GetWorkspace(_ context.Context, id pgtype.UUID) (db.Workspace, error) {
@@ -31,11 +34,11 @@ func (q mentionTestQueries) GetWorkspace(_ context.Context, id pgtype.UUID) (db.
 	return db.Workspace{Slug: slug}, nil
 }
 
-func (q mentionTestQueries) GetMattermostMentionUsername(_ context.Context, arg db.GetMattermostMentionUsernameParams) (string, error) {
+func (q mentionTestQueries) GetMattermostMentionUsername(_ context.Context, arg db.GetMattermostMentionUsernameParams) (db.GetMattermostMentionUsernameRow, error) {
 	if _, exists := q.workspaces[arg.WorkspaceID]; !exists || arg.UserID != q.recipient {
-		return "", pgx.ErrNoRows
+		return db.GetMattermostMentionUsernameRow{}, pgx.ErrNoRows
 	}
-	return "alice", nil
+	return q.profile, nil
 }
 
 func TestMentionNotifications(t *testing.T) {
@@ -50,18 +53,32 @@ func TestMentionNotifications(t *testing.T) {
 		disabled      bool
 		broadcast     bool
 		notEligible   bool
+		duplicateName bool
 		missingUser   bool
+		invalidName   bool
+		inactiveUser  bool
+		missingIssue  bool
 		personalToken bool
+		wantReason    string
 	}{
 		{name: "mention", kind: "mentioned"},
 		{name: "unrelated notification", kind: "assigned"},
 		{name: "broadcast mention", kind: "mentioned", broadcast: true},
-		{name: "disabled server", kind: "mentioned", disabled: true},
-		{name: "ineligible account", kind: "mentioned", notEligible: true},
+		{name: "disabled server", kind: "mentioned", disabled: true, wantReason: "notification_bot_not_configured"},
+		{name: "ineligible account", kind: "mentioned", notEligible: true, wantReason: "recipient_not_workspace_member"},
+		{name: "duplicate profile name", kind: "mentioned", duplicateName: true, wantReason: "duplicate_multica_profile_name"},
+		{name: "invalid profile name", kind: "mentioned", invalidName: true, wantReason: "invalid_multica_profile_name"},
+		{name: "missing issue ID", kind: "mentioned", missingIssue: true, wantReason: "invalid_inbox_event"},
 		{name: "personal token", kind: "mentioned", personalToken: true},
-		{name: "Mattermost account missing", kind: "mentioned", missingUser: true},
+		{name: "Mattermost account missing", kind: "mentioned", missingUser: true, wantReason: "mattermost_user_not_found"},
+		{name: "Mattermost account deactivated", kind: "mentioned", inactiveUser: true, wantReason: "mattermost_user_deactivated"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+
 			requests := make(chan string, 10)
 			links := make(chan string, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +92,11 @@ func TestMentionNotifications(t *testing.T) {
 						w.WriteHeader(http.StatusNotFound)
 						return
 					}
-					_ = json.NewEncoder(w).Encode(User{ID: "alice-id", Username: "alice"})
+					user := User{ID: "alice-id", Username: "alice"}
+					if tc.inactiveUser {
+						user.DeleteAt = 1
+					}
+					_ = json.NewEncoder(w).Encode(user)
 				case "/api/v4/users/me":
 					_ = json.NewEncoder(w).Encode(User{ID: "bot-id", IsBot: !tc.personalToken})
 				case "/api/v4/channels/direct":
@@ -103,9 +124,13 @@ func TestMentionNotifications(t *testing.T) {
 			q := mentionTestQueries{
 				workspaces: map[pgtype.UUID]string{workspace: "engineering", secondWorkspace: "support"},
 				recipient:  recipient,
+				profile:    db.GetMattermostMentionUsernameRow{Username: "alice", DuplicateName: tc.duplicateName},
 			}
 			if tc.notEligible {
 				q.recipient = pgtype.UUID{}
+			}
+			if tc.invalidName {
+				q.profile.Username = "alice example"
 			}
 			serverURL, token := server.URL, "test-token"
 			if tc.disabled {
@@ -115,12 +140,17 @@ func TestMentionNotifications(t *testing.T) {
 			if err := RegisterMentionNotifications(bus, q, "https://multica.example", serverURL, token); err != nil {
 				t.Fatal(err)
 			}
+			item := map[string]any{
+				"type": tc.kind, "recipient_type": "member", "recipient_id": util.UUIDToString(recipient),
+				"read": false, "issue_id": &issue, "title": "private title",
+			}
+			if tc.missingIssue {
+				delete(item, "issue_id")
+			}
 			event := events.Event{
-				Type: protocol.EventInboxNew, WorkspaceID: util.UUIDToString(workspace), DirectMemberMention: !tc.broadcast,
-				Payload: map[string]any{"item": map[string]any{
-					"type": tc.kind, "recipient_type": "member", "recipient_id": util.UUIDToString(recipient),
-					"read": false, "issue_id": &issue, "title": "private title",
-				}},
+				Type: protocol.EventInboxNew, WorkspaceID: util.UUIDToString(workspace),
+				DirectMemberMention: !tc.broadcast && tc.kind == "mentioned",
+				Payload:             map[string]any{"item": item},
 			}
 			bus.Publish(event)
 			if tc.name == "mention" {
@@ -146,11 +176,17 @@ func TestMentionNotifications(t *testing.T) {
 				}
 			case "personal token":
 				want = []string{"GET /api/v4/users/username/alice", "GET /api/v4/users/me"}
-			case "Mattermost account missing":
+			case "Mattermost account missing", "Mattermost account deactivated":
 				want = []string{"GET /api/v4/users/username/alice"}
 			}
 			if !slices.Equal(got, want) {
 				t.Errorf("requests = %v, want %v", got, want)
+			}
+			if tc.wantReason != "" && !strings.Contains(logs.String(), "reason="+tc.wantReason) {
+				t.Errorf("missing reason %q in logs: %s", tc.wantReason, &logs)
+			}
+			if strings.Contains(logs.String(), "test-token") || strings.Contains(logs.String(), "private title") {
+				t.Error("mention logs contain credentials or private issue content")
 			}
 		})
 	}

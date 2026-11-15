@@ -191,6 +191,8 @@ allowlist の正確な判定順序は[ログインとサインアップ](/auth-s
 | Slack | `MULTICA_SLACK_SECRET_KEY` | base64 エンコードされた 32 バイトの token 暗号化キー |
 | Telegram | `MULTICA_TELEGRAM_SECRET_KEY` | base64 エンコードされた 32 バイトの Bot token 暗号化キー |
 | Mattermost | `MULTICA_MATTERMOST_SECRET_KEY` | base64 エンコードされた 32 バイトのボットアクセストークン暗号化キー |
+| Mattermost | `MULTICA_MATTERMOST_NOTIFICATION_URL` | 全ワークスペースのメンション通知に使うサーバー URL |
+| Mattermost | `MULTICA_MATTERMOST_NOTIFICATION_TOKEN` | 共通の通知ボットのアクセストークン |
 | Telegram | `MULTICA_TELEGRAM_TOOL_PROGRESS` | ストリーミング返信に表示するツールのステップ。`auto`（既定。DM では詳細、グループでは作業の種類のみ）、`off`、`summary`、`detail` |
 | Composio | `COMPOSIO_API_KEY` | Composio ツール接続を有効化 |
 | Composio | `COMPOSIO_CALLBACK_BASE_URL` | コールバック API アドレス。`MULTICA_PUBLIC_URL` にフォールバック可能 |

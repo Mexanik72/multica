@@ -21,40 +21,36 @@ import (
 
 type mentionQueries interface {
 	GetWorkspace(context.Context, pgtype.UUID) (db.Workspace, error)
-	GetChannelInstallation(context.Context, db.GetChannelInstallationParams) (db.ChannelInstallation, error)
-	ListMembersWithUser(context.Context, pgtype.UUID) ([]db.ListMembersWithUserRow, error)
+	GetMattermostMentionUsername(context.Context, db.GetMattermostMentionUsernameParams) (string, error)
 }
 
 type mentionNotifications struct {
-	queries       mentionQueries
-	decrypt       Decrypter
-	appURL        string
-	installations map[string]pgtype.UUID
+	queries mentionQueries
+	client  *restClient
+	appURL  string
 }
 
 var mattermostUsername = regexp.MustCompile(`^[a-z][a-z0-9._-]{2,21}$`)
 
-// RegisterMentionNotifications accepts comma-separated workspace-slug=installation-UUID pairs.
-func RegisterMentionNotifications(bus *events.Bus, queries mentionQueries, decrypt Decrypter, appURL, routes string) {
-	if strings.TrimSpace(routes) == "" {
-		return
+// RegisterMentionNotifications registers the server-wide bot when its URL and
+// token are configured. The bot does not need a channel installation.
+func RegisterMentionNotifications(bus *events.Bus, queries mentionQueries, appURL, serverURL, token string) error {
+	if strings.TrimSpace(serverURL) == "" && strings.TrimSpace(token) == "" {
+		return nil
+	}
+	serverURL, err := canonicalServerURL(serverURL)
+	if err != nil {
+		return ErrInvalidServerURL
+	}
+	token, err = validateAccessToken(token)
+	if err != nil {
+		return err
 	}
 	notifications := mentionNotifications{
-		queries: queries, decrypt: decrypt, appURL: appURL,
-		installations: make(map[string]pgtype.UUID),
+		queries: queries, client: newRESTClient(serverURL, token, nil), appURL: appURL,
 	}
-	for _, route := range strings.Split(routes, ",") {
-		slug, rawID, ok := strings.Cut(strings.TrimSpace(route), "=")
-		slug = strings.TrimSpace(slug)
-		id, err := util.ParseUUID(strings.TrimSpace(rawID))
-		if !ok || slug == "" || err != nil || notifications.installations[slug].Valid {
-			slog.Error("mattermost: invalid MULTICA_MATTERMOST_MENTION_BOTS configuration")
-			return
-		}
-		notifications.installations[slug] = id
-	}
-
 	bus.Subscribe(protocol.EventInboxNew, notifications.handle)
+	return nil
 }
 
 func (n mentionNotifications) handle(event events.Event) {
@@ -85,16 +81,8 @@ func (n mentionNotifications) handle(event events.Event) {
 }
 
 func (n mentionNotifications) deliver(ctx context.Context, workspaceID, recipientID, issueID pgtype.UUID) error {
-	workspace, err := n.queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return err
-	}
-	installationID, enabled := n.installations[workspace.Slug]
-	if !enabled {
-		return nil
-	}
-	installation, err := n.queries.GetChannelInstallation(ctx, db.GetChannelInstallationParams{
-		ID: installationID, ChannelType: string(TypeMattermost),
+	username, err := n.queries.GetMattermostMentionUsername(ctx, db.GetMattermostMentionUsernameParams{
+		WorkspaceID: workspaceID, UserID: recipientID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -102,23 +90,15 @@ func (n mentionNotifications) deliver(ctx context.Context, workspaceID, recipien
 	if err != nil {
 		return err
 	}
-	if installation.WorkspaceID != workspaceID || installation.Status != "active" {
+	if !mattermostUsername.MatchString(username) {
 		return nil
 	}
 
-	members, err := n.queries.ListMembersWithUser(ctx, workspaceID)
+	workspace, err := n.queries.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	username := mentionUsername(members, recipientID)
-	if username == "" {
-		return nil
-	}
-	creds, err := decodeCredentials(installation.Config, n.decrypt)
-	if err != nil {
-		return err
-	}
-	client := newRESTClient(creds.ServerURL, creds.AccessToken, nil)
+	client := n.client
 	user, err := client.getUserByUsername(ctx, username)
 	if statusOf(err) == http.StatusNotFound {
 		return nil
@@ -126,11 +106,19 @@ func (n mentionNotifications) deliver(ctx context.Context, workspaceID, recipien
 	if err != nil {
 		return err
 	}
-	if user.ID == "" || user.ID == creds.BotUserID || user.IsBot || user.DeleteAt != 0 || user.Username != username {
+	if user.ID == "" || user.IsBot || user.DeleteAt != 0 || user.Username != username {
 		return nil
 	}
 
-	channelID, err := client.createDirectChannel(ctx, creds.BotUserID, user.ID)
+	bot, err := client.GetMe(ctx)
+	if err != nil {
+		return err
+	}
+	if bot.ID == "" || !bot.IsBot || bot.DeleteAt != 0 || bot.ID == user.ID {
+		return ErrNotABotAccount
+	}
+
+	channelID, err := client.createDirectChannel(ctx, bot.ID, user.ID)
 	if err != nil {
 		return err
 	}
@@ -143,23 +131,4 @@ func (n mentionNotifications) deliver(ctx context.Context, workspaceID, recipien
 	}
 	_, err = client.CreatePost(ctx, Post{ChannelID: channelID, Message: message})
 	return err
-}
-
-func mentionUsername(members []db.ListMembersWithUserRow, recipientID pgtype.UUID) string {
-	username := ""
-	for _, member := range members {
-		if member.UserID == recipientID {
-			username = strings.ToLower(strings.TrimSpace(member.UserName))
-			break
-		}
-	}
-	if !mattermostUsername.MatchString(username) {
-		return ""
-	}
-	for _, member := range members {
-		if member.UserID != recipientID && strings.EqualFold(strings.TrimSpace(member.UserName), username) {
-			return ""
-		}
-	}
-	return username
 }

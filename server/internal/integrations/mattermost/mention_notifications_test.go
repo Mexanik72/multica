@@ -2,7 +2,6 @@ package mattermost
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/events"
@@ -19,50 +19,51 @@ import (
 )
 
 type mentionTestQueries struct {
-	installation db.ChannelInstallation
-	members      []db.ListMembersWithUserRow
+	workspaces map[pgtype.UUID]string
+	recipient  pgtype.UUID
 }
 
-func (*mentionTestQueries) GetWorkspace(context.Context, pgtype.UUID) (db.Workspace, error) {
-	return db.Workspace{Slug: "engineering"}, nil
-}
-
-func (q *mentionTestQueries) GetChannelInstallation(_ context.Context, arg db.GetChannelInstallationParams) (db.ChannelInstallation, error) {
-	if arg.ID != q.installation.ID || arg.ChannelType != string(TypeMattermost) {
-		panic("unexpected installation lookup")
+func (q mentionTestQueries) GetWorkspace(_ context.Context, id pgtype.UUID) (db.Workspace, error) {
+	slug, exists := q.workspaces[id]
+	if !exists {
+		return db.Workspace{}, pgx.ErrNoRows
 	}
-	return q.installation, nil
+	return db.Workspace{Slug: slug}, nil
 }
 
-func (q *mentionTestQueries) ListMembersWithUser(context.Context, pgtype.UUID) ([]db.ListMembersWithUserRow, error) {
-	return q.members, nil
+func (q mentionTestQueries) GetMattermostMentionUsername(_ context.Context, arg db.GetMattermostMentionUsernameParams) (string, error) {
+	if _, exists := q.workspaces[arg.WorkspaceID]; !exists || arg.UserID != q.recipient {
+		return "", pgx.ErrNoRows
+	}
+	return "alice", nil
 }
 
 func TestMentionNotifications(t *testing.T) {
 	workspace := util.MustParseUUID("10000000-0000-0000-0000-000000000001")
+	secondWorkspace := util.MustParseUUID("10000000-0000-0000-0000-000000000003")
 	recipient := util.MustParseUUID("10000000-0000-0000-0000-000000000002")
-	installation := util.MustParseUUID("10000000-0000-0000-0000-000000000003")
 	issue := "10000000-0000-0000-0000-000000000004"
 
 	for _, tc := range []struct {
-		name        string
-		kind        string
-		disabled    bool
-		broadcast   bool
-		wrongSpace  bool
-		duplicate   bool
-		missingUser bool
+		name          string
+		kind          string
+		disabled      bool
+		broadcast     bool
+		notEligible   bool
+		missingUser   bool
+		personalToken bool
 	}{
 		{name: "mention", kind: "mentioned"},
 		{name: "unrelated notification", kind: "assigned"},
 		{name: "broadcast mention", kind: "mentioned", broadcast: true},
-		{name: "disabled workspace", kind: "mentioned", disabled: true},
-		{name: "bot in another workspace", kind: "mentioned", wrongSpace: true},
-		{name: "duplicate profile name", kind: "mentioned", duplicate: true},
+		{name: "disabled server", kind: "mentioned", disabled: true},
+		{name: "ineligible account", kind: "mentioned", notEligible: true},
+		{name: "personal token", kind: "mentioned", personalToken: true},
 		{name: "Mattermost account missing", kind: "mentioned", missingUser: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests := make(chan string, 10)
+			links := make(chan string, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests <- r.Method + " " + r.URL.Path
 				if r.Header.Get("Authorization") != "Bearer test-token" {
@@ -75,6 +76,8 @@ func TestMentionNotifications(t *testing.T) {
 						return
 					}
 					_ = json.NewEncoder(w).Encode(User{ID: "alice-id", Username: "alice"})
+				case "/api/v4/users/me":
+					_ = json.NewEncoder(w).Encode(User{ID: "bot-id", IsBot: !tc.personalToken})
 				case "/api/v4/channels/direct":
 					var ids []string
 					if err := json.NewDecoder(r.Body).Decode(&ids); err != nil || !slices.Equal(ids, []string{"bot-id", "alice-id"}) {
@@ -84,10 +87,11 @@ func TestMentionNotifications(t *testing.T) {
 				case "/api/v4/posts":
 					var post Post
 					if err := json.NewDecoder(r.Body).Decode(&post); err != nil || post.ChannelID != "dm-id" ||
-						!strings.Contains(post.Message, "https://multica.example/engineering/issues/"+issue) ||
+						!strings.HasSuffix(post.Message, "/issues/"+issue) ||
 						strings.Contains(post.Message, "private title") {
 						t.Errorf("unexpected mention post: %+v (%v)", post, err)
 					}
+					links <- post.Message
 					_, _ = w.Write([]byte(`{"id":"post-id"}`))
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)
@@ -96,38 +100,36 @@ func TestMentionNotifications(t *testing.T) {
 			}))
 			defer server.Close()
 
-			config, err := json.Marshal(installConfig{
-				ServerURL: server.URL, BotUserID: "bot-id",
-				AccessTokenEncrypted: base64.StdEncoding.EncodeToString([]byte("test-token")),
-			})
-			if err != nil {
-				t.Fatal(err)
+			q := mentionTestQueries{
+				workspaces: map[pgtype.UUID]string{workspace: "engineering", secondWorkspace: "support"},
+				recipient:  recipient,
 			}
-			q := &mentionTestQueries{
-				installation: db.ChannelInstallation{ID: installation, WorkspaceID: workspace, Status: "active", Config: config},
-				members:      []db.ListMembersWithUserRow{{UserID: recipient, UserName: "Alice"}},
+			if tc.notEligible {
+				q.recipient = pgtype.UUID{}
 			}
-			if tc.wrongSpace {
-				q.installation.WorkspaceID = installation
-			}
-			if tc.duplicate {
-				q.members = append(q.members, db.ListMembersWithUserRow{UserID: installation, UserName: "alice"})
-			}
-			routes := "engineering=" + util.UUIDToString(installation)
+			serverURL, token := server.URL, "test-token"
 			if tc.disabled {
-				routes = "another-workspace=" + util.UUIDToString(installation)
+				serverURL, token = "", ""
 			}
 			bus := events.New()
-			RegisterMentionNotifications(bus, q, nil, "https://multica.example", routes)
-			bus.Publish(events.Event{
+			if err := RegisterMentionNotifications(bus, q, "https://multica.example", serverURL, token); err != nil {
+				t.Fatal(err)
+			}
+			event := events.Event{
 				Type: protocol.EventInboxNew, WorkspaceID: util.UUIDToString(workspace), DirectMemberMention: !tc.broadcast,
 				Payload: map[string]any{"item": map[string]any{
 					"type": tc.kind, "recipient_type": "member", "recipient_id": util.UUIDToString(recipient),
 					"read": false, "issue_id": &issue, "title": "private title",
 				}},
-			})
+			}
+			bus.Publish(event)
+			if tc.name == "mention" {
+				event.WorkspaceID = util.UUIDToString(secondWorkspace)
+				bus.Publish(event)
+			}
 
 			close(requests)
+			close(links)
 			var got []string
 			for request := range requests {
 				got = append(got, request)
@@ -135,7 +137,15 @@ func TestMentionNotifications(t *testing.T) {
 			var want []string
 			switch tc.name {
 			case "mention":
-				want = []string{"GET /api/v4/users/username/alice", "POST /api/v4/channels/direct", "POST /api/v4/posts"}
+				requestsPerMention := []string{"GET /api/v4/users/username/alice", "GET /api/v4/users/me", "POST /api/v4/channels/direct", "POST /api/v4/posts"}
+				want = append(slices.Clone(requestsPerMention), requestsPerMention...)
+				for _, slug := range []string{"engineering", "support"} {
+					if message := <-links; !strings.Contains(message, "https://multica.example/"+slug+"/issues/"+issue) {
+						t.Errorf("missing link for %s in %q", slug, message)
+					}
+				}
+			case "personal token":
+				want = []string{"GET /api/v4/users/username/alice", "GET /api/v4/users/me"}
 			case "Mattermost account missing":
 				want = []string{"GET /api/v4/users/username/alice"}
 			}

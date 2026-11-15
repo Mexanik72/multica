@@ -151,6 +151,32 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const getMattermostMentionUsername = `-- name: GetMattermostMentionUsername :one
+SELECT lower(btrim(u.name, E' \t\n\r'))::text AS username
+FROM "user" u
+JOIN member m ON m.user_id = u.id
+WHERE m.workspace_id = $1
+  AND m.user_id = $2
+  AND NOT EXISTS (
+    SELECT 1 FROM "user" other
+    WHERE other.id <> u.id
+      AND lower(btrim(other.name, E' \t\n\r')) = lower(btrim(u.name, E' \t\n\r'))
+  )
+`
+
+type GetMattermostMentionUsernameParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	UserID      pgtype.UUID `json:"user_id"`
+}
+
+// A server-wide bot requires an unambiguous account across the deployment.
+func (q *Queries) GetMattermostMentionUsername(ctx context.Context, arg GetMattermostMentionUsernameParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMattermostMentionUsername, arg.WorkspaceID, arg.UserID)
+	var username string
+	err := row.Scan(&username)
+	return username, err
+}
+
 const getUser = `-- name: GetUser :one
 SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, whats_new_seen_version, star_prompt_shown_count, star_prompt_last_shown_at, star_prompt_starred_at FROM "user"
 WHERE id = $1

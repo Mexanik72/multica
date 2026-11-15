@@ -2,6 +2,19 @@
 SELECT * FROM "user"
 WHERE id = $1;
 
+-- name: GetMattermostMentionUsername :one
+-- A server-wide bot requires an unambiguous account across the deployment.
+SELECT lower(btrim(u.name, E' \t\n\r'))::text AS username
+FROM "user" u
+JOIN member m ON m.user_id = u.id
+WHERE m.workspace_id = sqlc.arg('workspace_id')
+  AND m.user_id = sqlc.arg('user_id')
+  AND NOT EXISTS (
+    SELECT 1 FROM "user" other
+    WHERE other.id <> u.id
+      AND lower(btrim(other.name, E' \t\n\r')) = lower(btrim(u.name, E' \t\n\r'))
+  );
+
 -- name: GetUserByEmail :one
 SELECT * FROM "user"
 WHERE email = $1;

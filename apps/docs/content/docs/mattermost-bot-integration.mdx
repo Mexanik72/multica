@@ -106,17 +106,18 @@ Multica never follows an HTTP redirect when talking to your Mattermost server, s
 
 ## Send mention notifications to Mattermost
 
-Choose one connected bot per workspace. In the Multica settings page, open the browser's Network tab and inspect the response to `GET /api/workspaces/{id}/mattermost/installations`. Copy the `id` of the active installation you want to send notifications from. Use the workspace slug from its Multica URL.
-
-Set `MULTICA_MATTERMOST_MENTION_BOTS` in the backend environment and recreate the backend container. Separate entries with commas if you run multiple workspaces.
+Create one Mattermost bot account for notification delivery from every Multica workspace, including new workspaces. Set both variables in the backend environment and recreate the backend container.
 
 ```dotenv
-MULTICA_MATTERMOST_MENTION_BOTS=engineering=11111111-2222-4333-8444-555555555555
+MULTICA_MATTERMOST_NOTIFICATION_URL=https://mattermost.example.com
+MULTICA_MATTERMOST_NOTIFICATION_TOKEN=<bot-access-token>
 ```
 
-When someone directly mentions a member in an issue description or comment, the selected bot sends a direct message with a link to the issue. Multica compares the member's profile name with the Mattermost username after trimming surrounding spaces and converting to lowercase. It skips duplicate names in the workspace, missing accounts, bots, and deactivated accounts. Account linking is unnecessary for these notifications.
+When someone directly mentions a member in an issue description or comment, the shared bot sends them a direct message with a link to the issue. Multica matches the member’s profile name to the Mattermost username, ignoring surrounding whitespace and capitalization. Names that match multiple Multica accounts are skipped, as are missing, bot, or deactivated Mattermost accounts.
 
-Enable this only in workspaces where your organization keeps those names aligned. Issue access is checked by Multica when the recipient opens the link.
+Enable this for deployments where the same names identify the same people in both systems. The shared bot uses an outbound REST connection. It needs no agent installation, user account linking, or `MULTICA_MATTERMOST_SECRET_KEY` for notification delivery. Connected agent bots still use that key to encrypt their stored tokens.
+
+Replace any previous `MULTICA_MATTERMOST_MENTION_BOTS` setting with these two variables when upgrading.
 
 ## Verifying a change against a real server
 

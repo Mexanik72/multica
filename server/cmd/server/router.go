@@ -1346,7 +1346,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// could call from the request path. See the adapter's design note.
 			channelRouter.Register(mattermost.TypeMattermost, mattermost.NewMattermostResolverSet(queries, pool, mattermostReplier))
 			mattermost.NewOutbound(queries, box.Open, nil, slog.Default()).Register(bus)
-			mattermost.RegisterMentionNotifications(bus, queries, box.Open, appURLFromEnv(), os.Getenv("MULTICA_MATTERMOST_MENTION_BOTS"))
 
 			// Per-installation inbound: the Supervisor builds + supervises one
 			// WebSocket connection per active Mattermost installation,
@@ -1363,6 +1362,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		}
 	} else {
 		slog.Info("mattermost integration disabled (MULTICA_MATTERMOST_SECRET_KEY not set)")
+	}
+
+	if err := mattermost.RegisterMentionNotifications(
+		bus, queries, appURLFromEnv(),
+		os.Getenv("MULTICA_MATTERMOST_NOTIFICATION_URL"),
+		os.Getenv("MULTICA_MATTERMOST_NOTIFICATION_TOKEN"),
+	); err != nil {
+		slog.Error("mattermost mention notifications disabled", "error", err)
 	}
 
 	// Composio integration (MUL-3720). Gated by COMPOSIO_API_KEY plus the

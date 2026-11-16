@@ -31,6 +31,11 @@ func TestMigrationNumericPrefixesAreUnique(t *testing.T) {
 			continue
 		}
 		if previous, exists := stemByNumber[number]; exists {
+			// Upstream shipped both migrations with 665. Databases record
+			// the full stems, so keep both published names.
+			if previous == "665_runtime_rate_limit" && stem == "665_weixin_state" {
+				continue
+			}
 			t.Errorf("migrations %s and %s share numeric prefix %s", previous, stem, prefix)
 			continue
 		}

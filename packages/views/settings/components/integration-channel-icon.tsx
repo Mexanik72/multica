@@ -1,6 +1,6 @@
+import { Mattermost, WeChat } from "@multica/ui/icons";
 import { DingTalkMark } from "./dingtalk-mark";
 import { LarkMark } from "./lark-mark";
-import { Mattermost } from "@multica/ui/icons";
 import type { ChannelIntegration } from "./settings-navigation";
 import { SlackMark } from "./slack-mark";
 import { TelegramMark } from "./telegram-mark";
@@ -12,6 +12,7 @@ export function IntegrationChannelIcon({ channel }: { channel: ChannelIntegratio
     slack: <SlackMark className="h-4 w-4" />,
     dingtalk: <DingTalkMark className="h-5 w-5" />,
     wecom: <WecomMark className="h-4 w-4" />,
+    weixin: <WeChat className="h-4 w-4" />,
     telegram: <TelegramMark className="h-4 w-4" />,
     mattermost: <Mattermost className="h-4 w-4" />,
   }[channel];

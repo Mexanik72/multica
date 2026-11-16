@@ -49,6 +49,7 @@
     "dingtalk-bot-integration",
     "telegram-bot-integration",
     "mattermost-bot-integration",
+    "weixin-bot-integration",
     "github-integration",
     "vcs-integration",
     "---Apps---",

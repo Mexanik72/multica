@@ -78,7 +78,7 @@ These are Multica message commands, typed as ordinary message text. They are not
 
 The bot replies in the thread the request came from, renders the agent's Markdown natively, and splits long replies under the server's maximum post size. The reply is posted once the agent finishes rather than streamed.
 
-This version accepts text only. A post that carries text plus an attachment is handled as text. A post with only files, images, or other non-text content receives a clear unsupported-message response in direct messages and when it explicitly addresses the bot; unaddressed channel media stays silent.
+When you mention the bot in a channel thread, Multica imports files from your message and the first post in the thread. You can send just the mention if the first post already contains the context or files. Direct messages also accept files. Multica imports up to 10 distinct files per request, with a 20 MiB limit per file. The bot replies with text.
 
 There is no typing indicator: Mattermost exposes typing only over its WebSocket API, with no server-side equivalent Multica can call for a message it is already processing.
 

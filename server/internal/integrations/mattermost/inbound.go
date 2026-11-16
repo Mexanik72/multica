@@ -26,7 +26,8 @@ type mattermostRawEvent struct {
 	SenderName string `json:"sender_name,omitempty"`
 	// TeamID is the Mattermost team the post belongs to. Empty for DMs and
 	// group DMs, which are team-independent.
-	TeamID string `json:"team_id,omitempty"`
+	TeamID  string   `json:"team_id,omitempty"`
+	FileIDs []string `json:"file_ids,omitempty"`
 }
 
 // inboundParams is everything inboundFromPosted needs beyond the event itself.
@@ -82,6 +83,7 @@ func inboundFromPosted(post Post, data postedData, p inboundParams) (channel.Inb
 		EventType:  eventPosted,
 		SenderName: senderDisplayName(data),
 		TeamID:     data.TeamID,
+		FileIDs:    post.FileIDs,
 	})
 
 	var reply *channel.ReplyCtx
@@ -166,6 +168,20 @@ func classifyPost(post Post) channel.MsgType {
 		return channel.MsgTypeFile
 	}
 	return channel.MsgTypeUnknown
+}
+
+func mergeFileIDs(lists ...[]string) []string {
+	var ids []string
+	seen := make(map[string]bool)
+	for _, list := range lists {
+		for _, id := range list {
+			if id != "" && !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
+			}
+		}
+	}
+	return ids
 }
 
 // isMentionByte reports whether b can appear inside a Mattermost username.

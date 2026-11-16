@@ -368,6 +368,76 @@ func TestChannelConnectThreadRootedByHumanIsNotAddressed(t *testing.T) {
 	}
 }
 
+func TestChannelConnectBareMentionUsesThreadRootAsContext(t *testing.T) {
+	for _, tc := range []struct{ name, rootAuthor string }{
+		{name: "human wrote the root", rootAuthor: "u1"},
+		{name: "bot wrote the root", rootAuthor: testBotID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeMattermost(t)
+			root := Post{ID: "root1", UserID: tc.rootAuthor, ChannelID: "chan1", Message: "Checkout started returning 503 after deploy"}
+			f.mu.Lock()
+			f.postsByID[root.ID] = root
+			f.mu.Unlock()
+			f.queue(
+				postedFrame(Post{ID: "p1", UserID: "u1", ChannelID: "chan1", RootID: root.ID, Message: "@" + testBotUsername}, "O", "@alice"),
+				postedFrame(Post{ID: "later", UserID: "u1", ChannelID: "chan1", Message: "later post"}, "O", "@alice"),
+			)
+
+			received := make(chan channel.InboundMessage, 2)
+			ch := buildChannel(t, f, func(_ context.Context, msg channel.InboundMessage) error {
+				received <- msg
+				return nil
+			})
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			go func() { _ = ch.Connect(ctx) }()
+
+			select {
+			case msg := <-received:
+				if msg.MessageID != "p1" || !msg.AddressedToBot || msg.Source.ThreadID != root.ID || !strings.Contains(msg.Text, root.Message) {
+					t.Fatalf("first inbound message = %+v, want the bare mention with thread context", msg)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no inbound message within 5s")
+			}
+		})
+	}
+}
+
+func TestChannelConnectCarriesAttachmentsFromMentionAndThreadRoot(t *testing.T) {
+	f := newFakeMattermost(t)
+	f.mu.Lock()
+	f.postsByID["root1"] = Post{ID: "root1", UserID: "u1", ChannelID: "chan1", FileIDs: []string{"root-zip", "same-file"}}
+	f.mu.Unlock()
+	f.queue(postedFrame(Post{
+		ID: "p1", UserID: "u1", ChannelID: "chan1", RootID: "root1", Message: "@" + testBotUsername + " inspect these files",
+		FileIDs: []string{"reply-zip", "same-file"},
+	}, "O", "@alice"))
+	received := make(chan channel.InboundMessage, 1)
+	ch := buildChannel(t, f, func(_ context.Context, msg channel.InboundMessage) error {
+		received <- msg
+		return nil
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = ch.Connect(ctx) }()
+	select {
+	case msg := <-received:
+		var raw struct {
+			FileIDs []string `json:"file_ids"`
+		}
+		if err := json.Unmarshal(msg.Raw, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(raw.FileIDs, ","); got != "reply-zip,same-file,root-zip" {
+			t.Errorf("file IDs = %q, want unique files from both posts", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no inbound message within 5s")
+	}
+}
+
 // A media-only DM gets a spoken "cannot handle this yet" rather than silence.
 func TestChannelConnectAnswersUnsupportedMediaInDM(t *testing.T) {
 	f := newFakeMattermost(t)

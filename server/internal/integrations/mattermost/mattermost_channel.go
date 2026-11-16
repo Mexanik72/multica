@@ -22,15 +22,16 @@ import (
 // per active installation and owns the lease and reconnect lifecycle; Connect
 // blocks on the receive loop until the link ends.
 type mattermostChannel struct {
-	appID       string
-	serverURL   string
-	botUserID   string
-	botUsername string
-	token       string
-	rest        *restClient
-	dialer      *websocket.Dialer
-	handler     channel.InboundHandler
-	logger      *slog.Logger
+	appID        string
+	serverURL    string
+	botUserID    string
+	botUsername  string
+	token        string
+	rest         *restClient
+	dialer       *websocket.Dialer
+	handler      channel.InboundHandler
+	logger       *slog.Logger
+	acceptsMedia bool
 
 	// rootAuthors caches "did the bot author this thread root", so a busy
 	// channel costs at most one REST call per thread rather than one per reply.
@@ -72,9 +73,12 @@ func (c *mattermostChannel) Type() channel.Type { return TypeMattermost }
 // typing signal is a WebSocket action with no REST equivalent, so delivering it
 // would need a cross-replica sender registry (see the design note in
 // docs/superpowers/specs/2026-09-01-mattermost-integration-design.md).
-// No CapAttachment: v1 ingests and sends text.
 func (c *mattermostChannel) Capabilities() channel.Capability {
-	return channel.CapText | channel.CapThreadReply
+	caps := channel.CapText | channel.CapThreadReply
+	if c.acceptsMedia {
+		caps |= channel.CapAttachment
+	}
+	return caps
 }
 
 // Disconnect is a no-op: the connection's whole lifetime is scoped to Connect,
@@ -257,29 +261,38 @@ func (c *mattermostChannel) dispatchPosted(ctx context.Context, frame wsFrame) e
 	if !ok {
 		return nil
 	}
-	if msg.Type != channel.MsgTypeText {
+	if msg.Type != channel.MsgTypeText && !(c.acceptsMedia && msg.Type == channel.MsgTypeFile) {
 		if msg.Source.ChatType == channel.ChatTypeP2P || msg.AddressedToBot {
 			c.notifyUnsupported(ctx, post)
 		}
 		return nil
 	}
-	// A BARE control command (`/clear`, `/new` with no body) normalizes to an
-	// empty Text: inbound strips the directive and nothing is left. The Router
-	// still needs it — that exact input is what produces FreshPending and
-	// ChatStarted, and dropping it here makes those replies unreachable.
-	// CommandText keeps the user's original line, so it is the honest test for
-	// "was anything actually said". Only a post with neither is dropped.
-	if msg.Text == "" && msg.CommandText == "" {
-		return nil
-	}
-	// A group member who replies to someone else AND mentions the bot is
-	// pointing at that message on purpose, so it rides along as context. A
-	// reply into a bot-rooted thread is a continuation, not a quote, and needs
-	// no enrichment.
-	if msg.Source.ChatType == channel.ChatTypeGroup && post.RootID != "" && mentionsBot(post.Message, c.botUsername) {
-		if quoted, sender, ok := c.lookupQuoted(ctx, post.RootID); ok && quoted.UserID != c.botUserID {
-			msg.Text = enrichWithQuotedPost(msg.Text, quoted, sender)
+	// A bare mention in a thread uses the root post as its input. For a
+	// written request, quote only roots authored by someone else because the
+	// bot's own replies are already part of the conversation.
+	emptyInput := msg.Text == "" && msg.CommandText == ""
+	hasFiles := len(post.FileIDs) > 0
+	group := msg.Source.ChatType == channel.ChatTypeGroup
+	if (group || c.acceptsMedia) && post.RootID != "" && mentionsBot(post.Message, c.botUsername) {
+		if quoted, sender, ok := c.lookupQuoted(ctx, post.RootID); ok && quoted.ChannelID == post.ChannelID {
+			if group && (emptyInput || quoted.UserID != c.botUserID) {
+				msg.Text = enrichWithQuotedPost(msg.Text, quoted, sender)
+			}
+			if len(quoted.FileIDs) > 0 {
+				raw, err := decodeMattermostRaw(msg)
+				if err != nil {
+					return err
+				}
+				raw.FileIDs = mergeFileIDs(raw.FileIDs, quoted.FileIDs)
+				msg.Raw, _ = json.Marshal(raw)
+				hasFiles = len(raw.FileIDs) > 0
+			}
 		}
+	}
+	// Bare control commands such as /clear carry only CommandText and still
+	// need to reach the router.
+	if msg.Text == "" && msg.CommandText == "" && !(c.acceptsMedia && hasFiles) {
+		return nil
 	}
 	if err := c.handler(ctx, msg); err != nil {
 		c.notifyIssueDispatchError(msg)
@@ -438,8 +451,9 @@ func (c *rootAuthorCache) put(key string, value bool) {
 // ChannelDeps are the shared dependencies the Mattermost Factory closes over.
 // The engine inbound handler is supplied per-build via channel.Config.Handler.
 type ChannelDeps struct {
-	Decrypt Decrypter
-	Logger  *slog.Logger
+	Decrypt      Decrypter
+	Logger       *slog.Logger
+	AcceptsMedia bool
 	// HTTPClient overrides the REST client (tests). Nil uses a default that
 	// refuses redirects.
 	HTTPClient *http.Client
@@ -479,16 +493,17 @@ func newMattermostFactory(deps ChannelDeps) channel.Factory {
 			return nil, errors.New("mattermost: installation has no bot user id")
 		}
 		return &mattermostChannel{
-			appID:       ic.AppID,
-			serverURL:   ic.ServerURL,
-			botUserID:   ic.BotUserID,
-			botUsername: ic.BotUsername,
-			token:       token,
-			rest:        newRESTClient(ic.ServerURL, token, deps.HTTPClient),
-			dialer:      deps.Dialer,
-			handler:     cfg.Handler,
-			logger:      logger,
-			rootAuthors: newRootAuthorCache(defaultRootAuthorCacheLimit),
+			appID:        ic.AppID,
+			serverURL:    ic.ServerURL,
+			botUserID:    ic.BotUserID,
+			botUsername:  ic.BotUsername,
+			token:        token,
+			rest:         newRESTClient(ic.ServerURL, token, deps.HTTPClient),
+			dialer:       deps.Dialer,
+			handler:      cfg.Handler,
+			logger:       logger,
+			acceptsMedia: deps.AcceptsMedia,
+			rootAuthors:  newRootAuthorCache(defaultRootAuthorCacheLimit),
 		}, nil
 	}
 }

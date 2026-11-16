@@ -25,7 +25,8 @@ import (
 //   - AgentOffline / AgentArchived: a status notice.
 //   - FreshPending / ChatStarted / IssueUsage: command confirmation or
 //     corrective guidance.
-//   - Ingested with an /issue result: creation or duplicate confirmation.
+//   - Ingested: acknowledge the incoming post with a reaction, plus a creation
+//     or duplicate confirmation for /issue.
 //   - Dropped addressed /issue commands: an authorization/status refusal.
 
 const (
@@ -129,6 +130,9 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				r.warn(ctx, "issue outcome reply failed", inst, err)
 			}
 		}
+		if err := r.acknowledge(ctx, inst, msg.MessageID); err != nil {
+			r.warn(ctx, "message acknowledgment failed", inst, err)
+		}
 	case engine.OutcomeDropped:
 		if text := droppedReplyText(res, msg); text != "" {
 			if err := r.post(ctx, inst, msg, text); err != nil {
@@ -174,19 +178,33 @@ func (r *OutboundReplier) sendBindingPrompt(ctx context.Context, inst engine.Res
 	return r.post(ctx, inst, msg, text)
 }
 
-// post resolves the installation's credentials from the carried platform row
-// and sends plain text back into the originating channel / thread.
-func (r *OutboundReplier) post(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text string) error {
+func (r *OutboundReplier) installationCredentials(inst engine.ResolvedInstallation) (credentials, error) {
 	row, ok := inst.Platform.(db.ChannelInstallation)
 	if !ok {
-		return errors.New("installation platform row unavailable")
+		return credentials{}, errors.New("installation platform row unavailable")
 	}
 	creds, err := decodeCredentials(row.Config, r.decrypt)
 	if err != nil {
-		return fmt.Errorf("decode credentials: %w", err)
+		return credentials{}, fmt.Errorf("decode credentials: %w", err)
 	}
 	if creds.ServerURL == "" {
-		return errors.New("installation has no server url")
+		return credentials{}, errors.New("installation has no server url")
+	}
+	return creds, nil
+}
+
+func (r *OutboundReplier) acknowledge(ctx context.Context, inst engine.ResolvedInstallation, postID string) error {
+	creds, err := r.installationCredentials(inst)
+	if err != nil {
+		return err
+	}
+	return newRESTClient(creds.ServerURL, creds.AccessToken, r.client).addReaction(ctx, creds.BotUserID, postID, "eyes")
+}
+
+func (r *OutboundReplier) post(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text string) error {
+	creds, err := r.installationCredentials(inst)
+	if err != nil {
+		return err
 	}
 	// Land where the agent's own reply lands. Both paths ask the same routing
 	// helper, so a verdict notice and the answer that follows it appear in the

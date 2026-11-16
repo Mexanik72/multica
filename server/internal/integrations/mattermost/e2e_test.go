@@ -35,6 +35,8 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/integrations/channel"
+	"github.com/multica-ai/multica/server/internal/integrations/channel/engine"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // e2eEnv is the connection block scripts/mattermost-e2e-up.sh prints.
@@ -381,6 +383,42 @@ func TestE2EDirectMessageNeedsNoMention(t *testing.T) {
 	}
 	if msg.Text != "hello with no mention" {
 		t.Errorf("Text = %q, want it unchanged", msg.Text)
+	}
+}
+
+func TestE2EAcceptedMentionGetsEyesReaction(t *testing.T) {
+	env := requireE2E(t)
+	lc := startLiveChannel(t, env)
+	posted := postAs(t, env, env.HumanToken, Post{
+		ChannelID: env.ChannelID,
+		Message:   fmt.Sprintf("@%s please investigate the checkout errors", env.BotUsername),
+	})
+	msg, ok := lc.await(t, posted.ID, 30*time.Second)
+	if !ok || !msg.AddressedToBot {
+		t.Fatal("the channel mention did not reach the adapter as an addressed message")
+	}
+	cfg, err := json.Marshal(installConfig{
+		ServerURL:            env.URL,
+		BotUserID:            env.BotUserID,
+		AccessTokenEncrypted: base64Std(env.BotToken),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replier := NewOutboundReplier(OutboundReplierConfig{})
+	replier.Reply(t.Context(), engine.ResolvedInstallation{Platform: db.ChannelInstallation{Config: cfg}}, msg, engine.Result{Outcome: engine.OutcomeIngested})
+
+	var reactions []struct {
+		UserID    string `json:"user_id"`
+		PostID    string `json:"post_id"`
+		EmojiName string `json:"emoji_name"`
+	}
+	reader := newRESTClient(env.URL, env.HumanToken, nil)
+	if err := reader.do(t.Context(), http.MethodGet, "/posts/"+posted.ID+"/reactions", nil, &reactions); err != nil {
+		t.Fatalf("read post reactions: %v", err)
+	}
+	if len(reactions) != 1 || reactions[0].UserID != env.BotUserID || reactions[0].PostID != posted.ID || reactions[0].EmojiName != "eyes" {
+		t.Fatalf("reactions = %+v, want one eyes reaction from the bot on post %s", reactions, posted.ID)
 	}
 }
 

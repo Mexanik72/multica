@@ -45,14 +45,36 @@ type replierHarness struct {
 	inst    engine.ResolvedInstallation
 	minter  *stubMinter
 
-	mu    sync.Mutex
-	posts []Post
+	mu        sync.Mutex
+	posts     []Post
+	reactions []map[string]string
 }
 
 func newReplierHarness(t *testing.T) *replierHarness {
 	t.Helper()
 	h := &replierHarness{minter: &stubMinter{token: "raw-token-value"}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v4/reactions" {
+			var reaction map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&reaction); err != nil {
+				t.Errorf("decode reaction: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if r.Header.Get("Authorization") != "Bearer tok" {
+				t.Error("reaction did not use the installation bot token")
+			}
+			h.mu.Lock()
+			h.reactions = append(h.reactions, reaction)
+			h.mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v4/posts" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		var in Post
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		h.mu.Lock()
@@ -226,6 +248,7 @@ func TestReplierOutcomes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newReplierHarness(t)
 			h.replier.Reply(context.Background(), h.inst, tc.msg, tc.result)
+			h.assertAcknowledged(t, tc.msg.MessageID, tc.result.Outcome == engine.OutcomeIngested)
 			posts := h.sent()
 			if tc.silent {
 				if len(posts) != 0 {
@@ -245,6 +268,34 @@ func TestReplierOutcomes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReplierReactsToMessageInsideThread(t *testing.T) {
+	h := newReplierHarness(t)
+	msg := groupInbound("Check this error")
+	msg.Source.ThreadID = "different-root-post"
+	h.replier.Reply(context.Background(), h.inst, msg, engine.Result{Outcome: engine.OutcomeIngested})
+	h.assertAcknowledged(t, "p1", true)
+}
+
+func (h *replierHarness) assertAcknowledged(t *testing.T, postID string, accepted bool) {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !accepted {
+		if len(h.reactions) != 0 {
+			t.Errorf("unexpected reactions for a message that was not accepted: %v", h.reactions)
+		}
+		return
+	}
+	if len(h.reactions) != 1 {
+		t.Errorf("got %d reactions, want one on post %s", len(h.reactions), postID)
+		return
+	}
+	reaction := h.reactions[0]
+	if reaction["post_id"] != postID || reaction["user_id"] != testBotID || reaction["emoji_name"] != "eyes" {
+		t.Errorf("unexpected reaction: %v", reaction)
 	}
 }
 

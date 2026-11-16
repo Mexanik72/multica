@@ -17,7 +17,8 @@ import (
 // GET /users/me (install-time validation and the bot identity),
 // GET /posts/{id} (thread-root authorship for group addressing),
 // POST /posts (outbound), PUT /posts/{id} (reserved for a future streaming
-// edit). It is a thin hand-rolled client over net/http — the Mattermost API is
+// edit), and POST /reactions (message acknowledgment). It is a thin
+// hand-rolled client over net/http — the Mattermost API is
 // plain JSON-over-HTTP with a bearer token, so no SDK dependency is warranted.
 
 const (
@@ -200,6 +201,14 @@ func (c *restClient) GetMe(ctx context.Context) (User, error) {
 	var u User
 	err := c.do(ctx, http.MethodGet, "/users/me", nil, &u)
 	return u, err
+}
+
+func (c *restClient) addReaction(ctx context.Context, userID, postID, emoji string) error {
+	return c.do(ctx, http.MethodPost, "/reactions", map[string]string{
+		"user_id":    userID,
+		"post_id":    postID,
+		"emoji_name": emoji,
+	}, nil)
 }
 
 func (c *restClient) getUserByUsername(ctx context.Context, username string) (User, error) {

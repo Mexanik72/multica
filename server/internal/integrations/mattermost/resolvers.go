@@ -27,7 +27,7 @@ const originMattermostChat = "mattermost_chat"
 // NewMattermostResolverSet assembles the Mattermost ResolverSet. Pass a nil
 // replier to disable outbound verdict notices. No TypingNotifier: Mattermost's
 // typing signal is WebSocket-only, so there is nothing this seam could call.
-func NewMattermostResolverSet(q *db.Queries, tx engine.TxStarter, replier engine.OutboundReplier) engine.ResolverSet {
+func NewMattermostResolverSet(q *db.Queries, tx engine.TxStarter, replier engine.OutboundReplier, media engine.MediaResolver) engine.ResolverSet {
 	return engine.ResolverSet{
 		Installation: &installationResolver{q: q},
 		Identity:     &identityResolver{q: q},
@@ -39,6 +39,7 @@ func NewMattermostResolverSet(q *db.Queries, tx engine.TxStarter, replier engine
 		})},
 		Audit:      &auditor{q: q},
 		Replier:    replier,
+		Media:      media,
 		OriginType: originMattermostChat,
 	}
 }
@@ -272,11 +273,15 @@ func (r *sessionBinder) AppendMessage(ctx context.Context, p engine.AppendParams
 
 func (r *sessionBinder) BindMedia(ctx context.Context, p engine.BindMediaParams) (engine.BindMediaResult, error) {
 	in := engine.BindMediaInput{
-		MessageID:   p.MessageID,
-		SessionID:   p.SessionID,
-		WorkspaceID: p.WorkspaceID,
-		Sender:      p.Sender,
-		MediaRefs:   p.MediaRefs,
+		MessageID:            p.MessageID,
+		SessionID:            p.SessionID,
+		WorkspaceID:          p.WorkspaceID,
+		Sender:               p.Sender,
+		IssueID:              p.IssueID,
+		IssueDescriptionBase: p.IssueDescriptionBase,
+		IssueCommandText:     p.IssueCommandText,
+		Body:                 p.Body,
+		MediaRefs:            p.MediaRefs,
 	}
 	if richer, ok := r.session.(interface {
 		BindMediaRefsWithResult(context.Context, engine.BindMediaInput) (engine.BindMediaResult, error)

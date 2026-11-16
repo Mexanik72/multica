@@ -106,25 +106,9 @@ func newRESTClient(base, token string, client *http.Client) *restClient {
 // do issues one API call and decodes the response into out (skipped when out
 // is nil). Non-2xx responses return *apiError.
 func (c *restClient) do(ctx context.Context, method, path string, body any, out any) error {
-	var reader io.Reader
-	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("mattermost: encode %s %s body: %w", method, path, err)
-		}
-		reader = bytes.NewReader(buf)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+apiPath+path, reader)
+	resp, err := c.request(ctx, method, path, body)
 	if err != nil {
-		return fmt.Errorf("mattermost: build %s %s request: %w", method, path, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return &requestError{method: method, cause: err}
+		return err
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
@@ -140,6 +124,30 @@ func (c *restClient) do(ctx context.Context, method, path string, body any, out 
 		return fmt.Errorf("mattermost: decode %s %s response: %w", method, path, err)
 	}
 	return nil
+}
+
+func (c *restClient) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("mattermost: encode %s %s body: %w", method, path, err)
+		}
+		reader = bytes.NewReader(buf)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+apiPath+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("mattermost: build %s %s request: %w", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, &requestError{method: method, cause: err}
+	}
+	return resp, nil
 }
 
 const (

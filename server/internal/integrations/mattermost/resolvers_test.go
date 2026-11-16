@@ -110,7 +110,7 @@ func TestDecodeMattermostRaw(t *testing.T) {
 }
 
 func TestNewMattermostResolverSetShape(t *testing.T) {
-	set := NewMattermostResolverSet(nil, nil, nil)
+	set := NewMattermostResolverSet(nil, nil, nil, nil)
 	if set.Installation == nil || set.Identity == nil || set.Dedup == nil || set.Session == nil || set.Audit == nil {
 		t.Fatalf("resolver set is missing a required stage: %+v", set)
 	}
@@ -122,7 +122,7 @@ func TestNewMattermostResolverSetShape(t *testing.T) {
 	if set.Typing != nil {
 		t.Error("Typing is set, want nil for v1")
 	}
-	// Media ingest is out of scope for v1.
+	// Media requires an explicitly configured resolver.
 	if set.Media != nil {
 		t.Error("Media is set, want nil for v1")
 	}

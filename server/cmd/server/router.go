@@ -1344,13 +1344,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// No TypingNotifier: Mattermost's typing signal is a WebSocket
 			// action with no REST equivalent, so there is nothing this seam
 			// could call from the request path. See the adapter's design note.
-			channelRouter.Register(mattermost.TypeMattermost, mattermost.NewMattermostResolverSet(queries, pool, mattermostReplier))
+			var mattermostMedia engine.MediaResolver
+			if store != nil {
+				mattermostMedia = mattermost.NewMediaResolver(box.Open, store, engine.NewDBMediaIntentLedger(queries), nil, slog.Default())
+			}
+			channelRouter.Register(mattermost.TypeMattermost, mattermost.NewMattermostResolverSet(queries, pool, mattermostReplier, mattermostMedia))
 			mattermost.NewOutbound(queries, box.Open, nil, slog.Default()).Register(bus)
 
 			// Per-installation inbound: the Supervisor builds + supervises one
 			// WebSocket connection per active Mattermost installation,
 			// authenticated with that installation's OWN bot access token.
-			mattermost.RegisterMattermost(channelRegistry, mattermost.ChannelDeps{Decrypt: box.Open, Logger: slog.Default()})
+			mattermost.RegisterMattermost(channelRegistry, mattermost.ChannelDeps{Decrypt: box.Open, Logger: slog.Default(), AcceptsMedia: mattermostMedia != nil})
 
 			installSvc, ierr := mattermost.NewInstallService(queries, pool, box, slog.Default())
 			if ierr != nil {

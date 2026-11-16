@@ -152,16 +152,16 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getMattermostMentionUsername = `-- name: GetMattermostMentionUsername :one
-SELECT lower(btrim(u.name, E' \t\n\r'))::text AS username
+SELECT lower(btrim(u.name, E' \t\n\r'))::text AS username,
+       EXISTS (
+         SELECT 1 FROM "user" other
+         WHERE other.id <> u.id
+           AND lower(btrim(other.name, E' \t\n\r')) = lower(btrim(u.name, E' \t\n\r'))
+       ) AS duplicate_name
 FROM "user" u
 JOIN member m ON m.user_id = u.id
 WHERE m.workspace_id = $1
   AND m.user_id = $2
-  AND NOT EXISTS (
-    SELECT 1 FROM "user" other
-    WHERE other.id <> u.id
-      AND lower(btrim(other.name, E' \t\n\r')) = lower(btrim(u.name, E' \t\n\r'))
-  )
 `
 
 type GetMattermostMentionUsernameParams struct {
@@ -169,12 +169,17 @@ type GetMattermostMentionUsernameParams struct {
 	UserID      pgtype.UUID `json:"user_id"`
 }
 
+type GetMattermostMentionUsernameRow struct {
+	Username      string `json:"username"`
+	DuplicateName bool   `json:"duplicate_name"`
+}
+
 // A server-wide bot requires an unambiguous account across the deployment.
-func (q *Queries) GetMattermostMentionUsername(ctx context.Context, arg GetMattermostMentionUsernameParams) (string, error) {
+func (q *Queries) GetMattermostMentionUsername(ctx context.Context, arg GetMattermostMentionUsernameParams) (GetMattermostMentionUsernameRow, error) {
 	row := q.db.QueryRow(ctx, getMattermostMentionUsername, arg.WorkspaceID, arg.UserID)
-	var username string
-	err := row.Scan(&username)
-	return username, err
+	var i GetMattermostMentionUsernameRow
+	err := row.Scan(&i.Username, &i.DuplicateName)
+	return i, err
 }
 
 const getUser = `-- name: GetUser :one

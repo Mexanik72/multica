@@ -35,6 +35,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
+	"github.com/multica-ai/multica/server/internal/integrations/weixin"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -412,6 +413,9 @@ type Handler struct {
 	// MattermostBindingTokens mints/redeems the user-binding tokens behind the
 	// "link your Mattermost account" prompt. Nil unless Mattermost is configured.
 	MattermostBindingTokens *mattermost.BindingTokenService
+
+	WeixinInstall  *weixin.InstallService
+	WeixinOutbound *weixin.Outbound
 
 	// channelFileDelivery names the channel types that can, IN THIS
 	// DEPLOYMENT, carry a file the agent produced the last hop into the

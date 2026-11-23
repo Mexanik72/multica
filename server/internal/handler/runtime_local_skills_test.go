@@ -364,7 +364,7 @@ func TestHermesAgentSkillInventoryRequest(t *testing.T) {
 	testutil.Call(t, h.InitiateListLocalSkills, initiate(otherUserID, agentID)).Want(http.StatusForbidden)
 	var request RuntimeLocalSkillListRequest
 	testutil.Call(t, h.InitiateListLocalSkills, initiate(testUserID, agentID)).Want(http.StatusOK).JSON(&request)
-	pending, _, err := h.processHeartbeat(t.Context(), runtimeID, false)
+	pending, _, err := h.processHeartbeat(t.Context(), runtimeID, protocol.DaemonHeartbeatRequestPayload{RuntimeID: runtimeID})
 	if err != nil || pending.PendingLocalSkills == nil || pending.PendingLocalSkills.HermesAgent == nil {
 		t.Fatalf("no Hermes agent in pending inventory request: %+v, %v", pending, err)
 	}
@@ -393,7 +393,7 @@ func TestHermesAgentSkillInventoryRequest(t *testing.T) {
 	}
 	testutil.Call(t, h.InitiateListLocalSkills, initPreview(otherUserID)).Want(http.StatusForbidden)
 	testutil.Call(t, h.InitiateListLocalSkills, initPreview(testUserID)).Want(http.StatusOK).JSON(&request)
-	pending, _, err = h.processHeartbeat(t.Context(), runtimeID, false)
+	pending, _, err = h.processHeartbeat(t.Context(), runtimeID, protocol.DaemonHeartbeatRequestPayload{RuntimeID: runtimeID})
 	if err != nil || pending.PendingLocalSkills == nil || pending.PendingLocalSkills.HermesAgent == nil ||
 		pending.PendingLocalSkills.HermesAgent.SkillKey != "reviews/checklist" {
 		t.Fatalf("preview request did not preserve the skill key: %+v, %v", pending, err)

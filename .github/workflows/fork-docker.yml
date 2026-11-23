@@ -15,6 +15,7 @@ jobs:
     env:
       MULTICA_BACKEND_IMAGE: ghcr.io/mexanik72/multica-backend
       MULTICA_WEB_IMAGE: ghcr.io/mexanik72/multica-web
+      MULTICA_COLLAB_IMAGE: ghcr.io/mexanik72/multica-collab
       MULTICA_IMAGE_TAG: sha-${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
@@ -50,10 +51,24 @@ jobs:
           cache-from: type=gha,scope=fork-web
           cache-to: type=gha,mode=max,scope=fork-web
 
+      - name: Build collab
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.collab
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.MULTICA_COLLAB_IMAGE }}:${{ env.MULTICA_IMAGE_TAG }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=fork-collab
+          cache-to: type=gha,mode=max,scope=fork-collab
+
       - name: Check the self-hosted stack
         shell: bash
         run: |
           export JWT_SECRET="$(openssl rand -hex 32)"
+          export COLLAB_SECRET="$(openssl rand -hex 32)"
+          export COMPOSE_PROFILES=collab
           compose=(docker compose -f docker-compose.selfhost.yml)
           cleanup() {
             local status=$?
@@ -81,6 +96,18 @@ jobs:
           wait_for_ok http://127.0.0.1:3000/
           wait_for_ok http://127.0.0.1:3000/health
 
+          wait_for_collab() {
+            for attempt in {1..60}; do
+              if "${compose[@]}" exec -T collab node --eval 'fetch("http://127.0.0.1:8095/health", { signal: AbortSignal.timeout(3000) }).then((response) => process.exit(response.status === 200 ? 0 : 1)).catch(() => process.exit(1))'; then
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::Timed out waiting for collab health"
+            return 1
+          }
+          wait_for_collab
+
       - name: Sign in to GHCR
         uses: docker/login-action@v3
         with:
@@ -93,9 +120,11 @@ jobs:
         run: |
           backend="$MULTICA_BACKEND_IMAGE:$MULTICA_IMAGE_TAG"
           web="$MULTICA_WEB_IMAGE:$MULTICA_IMAGE_TAG"
+          collab="$MULTICA_COLLAB_IMAGE:$MULTICA_IMAGE_TAG"
           docker push "$backend"
           docker push "$web"
+          docker push "$collab"
           {
             echo '### Published images'
-            printf '\n- `%s`\n- `%s`\n' "$backend" "$web"
+            printf '\n- `%s`\n- `%s`\n- `%s`\n' "$backend" "$web" "$collab"
           } >> "$GITHUB_STEP_SUMMARY"

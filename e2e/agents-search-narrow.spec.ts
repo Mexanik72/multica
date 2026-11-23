@@ -99,9 +99,10 @@ for (const width of [375, 390]) {
     const display = page.getByRole("button", { name: "Display settings" });
     const create = page.getByRole("button", { name: "New agent" });
     const filter = page.getByRole("button", { name: "1 filter" });
-    const fieldBox = await box(page.getByRole("group").filter({ has: field }));
+    const fieldGroup = page.getByRole("group").filter({ has: field });
     // The field keeps room to read a query.
-    expect(fieldBox.width).toBeGreaterThanOrEqual(96);
+    await expect.poll(async () => (await box(fieldGroup)).width).toBeGreaterThanOrEqual(96);
+    const fieldBox = await box(fieldGroup);
     for (const other of [filter, reset, display, create]) {
       expect(overlaps(fieldBox, await box(other))).toBe(false);
     }
@@ -130,8 +131,8 @@ test("keeps the title beside an open search on a wide window", async ({ page }) 
   await page.getByRole("textbox", { name: "Search agents" }).fill("review");
 
   await expect(page.getByRole("heading", { level: 1, name: /All agents/ })).toBeVisible();
-  const fieldBox = await box(
-    page.getByRole("group").filter({ has: page.getByRole("textbox", { name: "Search agents" }) }),
-  );
-  expect(fieldBox.width).toBe(240);
+  const fieldGroup = page.getByRole("group").filter({
+    has: page.getByRole("textbox", { name: "Search agents" }),
+  });
+  await expect.poll(async () => (await box(fieldGroup)).width).toBe(240);
 });

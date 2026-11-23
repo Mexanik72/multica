@@ -105,14 +105,16 @@
 
 ## CI для Docker
 
-Для полного self-hosted Multica собираем два образа из одного коммита.
-Существующий [Dockerfile](Dockerfile) собирает backend, а
-[Dockerfile.web](Dockerfile.web) — веб-интерфейс. Оба запускаются через
-[штатный Compose-файл](docker-compose.selfhost.yml), который также скачивает
-готовый образ PostgreSQL с pgvector.
+Для self-hosted Multica собираем три образа из одного коммита:
+[Dockerfile](Dockerfile) собирает backend,
+[Dockerfile.web](Dockerfile.web) — веб-интерфейс, а
+[Dockerfile.collab](Dockerfile.collab) — сервис совместного редактирования.
+[Штатный Compose-файл](docker-compose.selfhost.yml) по умолчанию запускает
+backend и веб-интерфейс и скачивает готовый образ PostgreSQL с pgvector.
+Сервис `collab` включается отдельно через профиль `collab`.
 
 Workflow [Fork Docker](.github/workflows/fork-docker.yml) запускается при
-push в `fork/main` в `Mexanik72/multica`. Он собирает обе версии для
+push в `fork/main` в `Mexanik72/multica`. Он собирает все три образа для
 `linux/amd64` и после проверки публикует их в GHCR с общим тегом
 `sha-<полный SHA коммита>`. Для сервера `aarch64` добавьте сборку
 `linux/arm64` в workflow. Перед слиянием PR запускайте проверки затронутых
@@ -121,13 +123,16 @@ push в `fork/main` в `Mexanik72/multica`. Он собирает обе вер�
 Для проверки CI ждёт ответа `200` от backend `GET /readyz`. Этот endpoint
 проверяет подключение к БД и наличие применённых миграций. Затем CI открывает
 веб-страницу и проверяет `GET /health` через веб-порт, чтобы проверить
-соединение веба с backend. Если за отведённое время сервисы не отвечают, job
-завершается с ошибкой и выводит логи Compose. Как работает проверка готовности
+соединение веба с backend. CI также генерирует `COLLAB_SECRET`, включает
+`COMPOSE_PROFILES=collab` и проверяет `GET /health` внутри контейнера `collab`.
+Дополнительный порт на хосте не открывается: редакторы подключаются через
+WebSocket `/collab` на backend. Если за отведённое время сервисы не отвечают,
+job завершается с ошибкой и выводит логи Compose. Как работает проверка готовности
 и проксирование, видно в [health.go](server/cmd/server/health.go) и
 [proxy.test.ts](apps/web/proxy.test.ts).
 
 Публикация использует `GITHUB_TOKEN` с `packages: write`. В отчёте успешного
-запуска указаны полные имена обоих образов с тегами. Для развёртывания
+запуска указаны полные имена всех трёх образов с тегами. Для развёртывания
 используйте общий тег из этого отчёта.
 При первом выпуске GHCR создаёт приватные пакеты. Для их скачивания серверу
 нужен токен с `read:packages`. [Документация GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry)
@@ -137,12 +142,29 @@ push в `fork/main` в `Mexanik72/multica`. Он собирает обе вер�
 ```dotenv
 MULTICA_BACKEND_IMAGE=ghcr.io/mexanik72/multica-backend
 MULTICA_WEB_IMAGE=ghcr.io/mexanik72/multica-web
+MULTICA_COLLAB_IMAGE=ghcr.io/mexanik72/multica-collab
 MULTICA_IMAGE_TAG=sha-<полный SHA из успешной сборки>
 ```
 
-Обновляйте оба сервиса одним `docker compose -f docker-compose.selfhost.yml
-pull`, затем применяйте оба образа через `docker compose -f
-docker-compose.selfhost.yml up -d`. Успешная сборка даёт версию для
+Оставляйте все три имени образов настроенными на форк: общий
+`MULTICA_IMAGE_TAG` применяется и к необязательному `collab`. По умолчанию
+совместное редактирование отключено. Для его проверки с Workspace Docs
+добавьте в `.env`:
+
+```dotenv
+FF_DOCS_V1=true
+COLLAB_SECRET=<результат openssl rand -hex 32>
+COMPOSE_PROFILES=collab
+```
+
+Для совместного редактирования описаний задач также требуется
+`FF_ISSUE_DESCRIPTION_LIVE=true`. Обе возможности пока выключены по умолчанию.
+Задавайте `COLLAB_SECRET` и включайте профиль вместе: секрет без работающего
+`collab` заставляет редактор ждать перед переходом к сохранению через API.
+
+Обновляйте включённые сервисы одним `docker compose -f
+docker-compose.selfhost.yml pull`, затем применяйте образы через
+`docker compose -f docker-compose.selfhost.yml up -d`. Успешная сборка даёт версию для
 развёртывания, которое запускает оператор. При откате версии после миграций
 сначала проверьте совместимость предыдущего backend с текущей схемой БД.
 

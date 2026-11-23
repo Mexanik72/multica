@@ -4,7 +4,7 @@ import type { TestApiClient } from "./fixtures";
 
 test.describe("Comments", () => {
   let api: TestApiClient;
-  let issueId: string;
+  let issueIdentifier: string;
   let issueTitle: string;
   let workspaceSlug: string;
 
@@ -12,7 +12,7 @@ test.describe("Comments", () => {
     api = await createTestApi();
     issueTitle = "E2E Comment Test " + Date.now();
     const issue = await api.createIssue(issueTitle);
-    issueId = issue.id;
+    issueIdentifier = issue.identifier;
     workspaceSlug = await loginAsDefault(page);
   });
 
@@ -23,7 +23,7 @@ test.describe("Comments", () => {
   });
 
   test("can add a comment on an issue", async ({ page }) => {
-    await page.goto(`/${workspaceSlug}/issues/${issueId}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/${workspaceSlug}/issues/${issueIdentifier}`, { waitUntil: "domcontentloaded" });
     await waitForPageText(page, issueTitle);
 
     // Wait for issue detail to load
@@ -53,7 +53,7 @@ test.describe("Comments", () => {
   });
 
   test("comment submit button is disabled when empty", async ({ page }) => {
-    await page.goto(`/${workspaceSlug}/issues/${issueId}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/${workspaceSlug}/issues/${issueIdentifier}`, { waitUntil: "domcontentloaded" });
     await waitForPageText(page, issueTitle);
 
     await expect(page.locator("text=Properties")).toBeVisible();

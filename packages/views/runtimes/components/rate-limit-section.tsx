@@ -71,6 +71,16 @@ function useRateLimitText() {
     });
     return (date: Date) => `${weekday.format(date)} ${time.format(date)}`;
   }, [locale, tz]);
+  const creditFormat = useMemo(
+    () => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }),
+    [locale],
+  );
+
+  // Codex reports the balance as a fixed-point string ("62500.0000000000").
+  const creditBalance = (balance: string) => {
+    const n = Number(balance);
+    return balance.trim() !== "" && Number.isFinite(n) ? creditFormat.format(n) : balance;
+  };
 
   const duration = (minutes: number) => {
     if (minutes < 60) {
@@ -155,7 +165,7 @@ function useRateLimitText() {
     return null;
   };
 
-  return { t, windowLabel, shortLabel, reset, usage, verdict };
+  return { t, windowLabel, shortLabel, reset, usage, verdict, creditBalance };
 }
 
 function useWindowViews(rateLimits: RuntimeRateLimits | null | undefined, now: number) {
@@ -193,7 +203,10 @@ function Meter({
       className={cn("relative h-2 rounded-full bg-foreground/10", className)}
     >
       <div
-        className={cn("absolute inset-y-0 left-0 rounded-full", FILL_TONE[view.tone])}
+        className={cn(
+          "absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+          FILL_TONE[view.tone],
+        )}
         style={{ width: `${Math.min(used, 100)}%` }}
       />
       {view.elapsedPercent !== undefined && !view.limited && (
@@ -202,7 +215,7 @@ function Meter({
         <div
           aria-hidden="true"
           data-slot="rate-limit-pace"
-          className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground/50"
+          className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground/50 transition-[left] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
           style={{ left: `${view.elapsedPercent}%` }}
         />
       )}
@@ -283,7 +296,9 @@ export function RateLimitSection({ runtime }: { runtime: AgentRuntime }) {
             {credits.unlimited
               ? text.t(($) => $.rate_limits.credits_unlimited)
               : credits.has_credits && credits.balance
-                ? text.t(($) => $.rate_limits.credits_balance, { balance: credits.balance })
+                ? text.t(($) => $.rate_limits.credits_balance, {
+                    balance: text.creditBalance(credits.balance),
+                  })
                 : text.t(($) => $.rate_limits.credits_none)}
           </span>
         </div>

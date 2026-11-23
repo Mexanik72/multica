@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/inbox"
 	"github.com/multica-ai/multica/server/internal/integrations/mattermost"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/testutil"
@@ -95,6 +96,7 @@ func TestIssueCommentMentionSendsMattermostDM(t *testing.T) {
 		WorkspaceID:   util.MustParseUUID(workspace),
 		RecipientType: "member",
 		RecipientID:   util.MustParseUUID(recipient),
+		RowLimit:      inbox.ActiveLimit,
 	})
 	if err != nil {
 		t.Fatal(err)

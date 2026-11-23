@@ -23,7 +23,7 @@ import (
 //   - NeedsBinding: mint a single-use binding token, reply with the link to
 //     the in-product redeem page (/mattermost/bind).
 //   - AgentOffline / AgentArchived: a status notice.
-//   - FreshPending / ChatStarted / IssueUsage: command confirmation or
+//   - FreshPending / ChatStarted / Help / IssueUsage: command confirmation or
 //     corrective guidance.
 //   - Ingested: acknowledge the incoming post with a reaction, plus a creation
 //     or duplicate confirmation for /issue.
@@ -115,6 +115,10 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 	case engine.OutcomeChatStarted:
 		if err := r.post(ctx, inst, msg, msgChatStarted); err != nil {
 			r.warn(ctx, "new-chat confirmation failed", inst, err)
+		}
+	case engine.OutcomeHelp:
+		if err := r.post(ctx, inst, msg, engine.HelpTextEnglish); err != nil {
+			r.warn(ctx, "help reply failed", inst, err)
 		}
 	case engine.OutcomeIssueUsage:
 		if err := r.post(ctx, inst, msg, msgIssueUsage); err != nil {

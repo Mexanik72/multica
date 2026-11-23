@@ -20,11 +20,22 @@ async function dragOnto(page: Page, from: string, to: string) {
 
 test("rail spaces reorder by drag and keep their order", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route(
+    (url) => url.pathname === "/api/config",
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({
+        response,
+        json: { ...body, feature_flags: { ...body.feature_flags, docs_v1: true } },
+      });
+    },
+  );
   const slug = await loginAsDefault(page);
   await page.evaluate(() => localStorage.removeItem("multica_rail_order"));
   await reloadAppPage(page);
 
-  expect(await railOrder(page)).toEqual(["inbox", "work", "team", "chat", "autopilots"]);
+  expect(await railOrder(page)).toEqual(["work", "docs", "team", "chat", "autopilots"]);
 
   // A drag that starts but moves nothing must not open Chat on release.
   const chat = await page.locator("[data-slot='app-rail'] [data-rail-item='chat']").boundingBox();
@@ -34,19 +45,19 @@ test("rail spaces reorder by drag and keep their order", async ({ page }) => {
   await page.mouse.move(chat.x + chat.width / 2, chat.y + chat.height / 2 + 10, { steps: 5 });
   await page.mouse.up();
   await page.waitForTimeout(300);
-  expect(await railOrder(page)).toEqual(["inbox", "work", "team", "chat", "autopilots"]);
+  expect(await railOrder(page)).toEqual(["work", "docs", "team", "chat", "autopilots"]);
   await expect(page).toHaveURL(new RegExp(`/${slug}/issues`));
 
-  // Dropping Chat on Inbox must not also open Chat.
-  await dragOnto(page, "chat", "inbox");
-  expect(await railOrder(page)).toEqual(["chat", "inbox", "work", "team", "autopilots"]);
+  // Dropping Chat on Work must not also open Chat.
+  await dragOnto(page, "chat", "work");
+  expect(await railOrder(page)).toEqual(["chat", "work", "docs", "team", "autopilots"]);
   await expect(page).toHaveURL(new RegExp(`/${slug}/issues`));
 
-  await dragOnto(page, "inbox", "autopilots");
-  expect(await railOrder(page)).toEqual(["chat", "work", "team", "autopilots", "inbox"]);
+  await dragOnto(page, "work", "autopilots");
+  expect(await railOrder(page)).toEqual(["chat", "docs", "team", "autopilots", "work"]);
 
   await reloadAppPage(page);
-  expect(await railOrder(page)).toEqual(["chat", "work", "team", "autopilots", "inbox"]);
+  expect(await railOrder(page)).toEqual(["chat", "docs", "team", "autopilots", "work"]);
 
   // A plain click after a drag still works.
   await page.locator("[data-rail-item='chat'] a").click();

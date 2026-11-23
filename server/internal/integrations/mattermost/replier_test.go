@@ -191,6 +191,7 @@ func TestReplierOutcomes(t *testing.T) {
 		{name: "agent archived", result: engine.Result{Outcome: engine.OutcomeAgentArchived}, msg: dmInbound(), want: msgAgentArchived},
 		{name: "fresh pending", result: engine.Result{Outcome: engine.OutcomeFreshPending}, msg: dmInbound(), want: msgFreshPending},
 		{name: "chat started", result: engine.Result{Outcome: engine.OutcomeChatStarted}, msg: dmInbound(), want: msgChatStarted},
+		{name: "help", result: engine.Result{Outcome: engine.OutcomeHelp}, msg: dmInbound(), want: engine.HelpTextEnglish},
 		{name: "issue usage", result: engine.Result{Outcome: engine.OutcomeIssueUsage}, msg: dmInbound(), want: msgIssueUsage},
 		{
 			name: "issue created",

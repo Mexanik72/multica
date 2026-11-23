@@ -61,9 +61,31 @@ test.describe("HTML preview fullscreen", () => {
         description: location === "description" ? content : "Reply preview regression",
       });
       const comment = location === "reply" ? await api.createComment(issue.id, content) : null;
-      await page.goto(`/${workspaceSlug}/issues/${issue.identifier}`, {
-        waitUntil: "domcontentloaded",
-      });
+      const ticketPath = `/api/issues/${issue.id}/collab-ticket`;
+      let releaseTicket = () => {};
+      if (location === "description") {
+        const gate = new Promise<void>((resolve) => { releaseTicket = resolve; });
+        await page.route(`**${ticketPath}`, async (route) => {
+          await gate;
+          await route.continue();
+        });
+      }
+      try {
+        await page.goto(`/${workspaceSlug}/issues/${issue.identifier}`, {
+          waitUntil: "domcontentloaded",
+        });
+        if (location === "description") {
+          const solo = await page.locator('[data-comment-content^="description:"] .ProseMirror:visible').elementHandle();
+          const response = page.waitForResponse((res) => res.url().endsWith(ticketPath));
+          releaseTicket();
+          if ((await (await response).json()).enabled === true) {
+            await expect.poll(() => solo!.evaluate((element) => element.isConnected)).toBe(false);
+          }
+        }
+      } finally {
+        releaseTicket();
+        if (location === "description") await page.unroute(`**${ticketPath}`);
+      }
       const outer = await scrollContainer(
         page.getByText("Paragraph before the preview.", { exact: true }).first(),
       );
@@ -72,7 +94,7 @@ test.describe("HTML preview fullscreen", () => {
       });
       const block = page.locator(
         location === "description"
-          ? ".code-block-wrapper"
+          ? '[data-dynamic-code-block] [data-dynamic-block="html"]'
           : `[data-comment-content="${comment!.id}"] [data-dynamic-block="html"]`,
       );
       await block.scrollIntoViewIfNeeded();
@@ -154,7 +176,7 @@ test.describe("HTML preview fullscreen", () => {
       });
 
       if (location === "description") {
-        await block.getByRole("button", { name: "Show source" }).click();
+        await block.getByRole("tab", { name: "Source" }).click();
         await opener.scrollIntoViewIfNeeded();
         const sourceHeight = (await block.boundingBox())!.height;
         const sourceScroll = await scroller.evaluate(readScroll);
@@ -327,6 +349,9 @@ test.describe("HTML preview fullscreen", () => {
     await block.scrollIntoViewIfNeeded();
     await block.getByRole("tab", { name: "Source" }).click();
     await block.getByRole("button", { name: "Show all" }).click();
+    await expect(
+      block.getByRole("tabpanel", { name: "Source" }).locator(":scope > div"),
+    ).toHaveCSS("max-height", "none");
     const source = block.locator("pre");
     const originalSource = await source.elementHandle();
     const beforeHeight = (await block.boundingBox())!.height;

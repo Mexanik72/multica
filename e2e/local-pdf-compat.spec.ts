@@ -3,6 +3,7 @@ import { createTestApi, loginAsDefault } from "./helpers";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || `http://localhost:${process.env.PORT || "8080"}`;
 // The full browser includes the native PDF viewer; headless-shell does not.
+// Native viewer labels can differ from the page locale; select its page input by id.
 test.use({ channel: "chromium" });
 
 function twoPagePDF(): Buffer {
@@ -59,7 +60,7 @@ test("cross-origin local PDF keeps its reading position past capability TTL", as
       }
       return false;
     }).toBe(true);
-    const pageNumber = viewerFrame!.getByRole("textbox", { name: "Page number" });
+    const pageNumber = viewerFrame!.locator("input#pageSelector");
     await pageNumber.fill("2");
     await pageNumber.press("Enter");
     await expect(pageNumber).toHaveValue("2");
@@ -126,7 +127,7 @@ for (const [mode, inlineURL] of [
         }
         return false;
       }).toBe(true);
-      const pageNumber = viewerFrame!.getByRole("textbox", { name: "Page number" });
+      const pageNumber = viewerFrame!.locator("input#pageSelector");
       await pageNumber.fill("2");
       await pageNumber.press("Enter");
       await expect(pageNumber).toHaveValue("2");

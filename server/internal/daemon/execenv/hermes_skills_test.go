@@ -102,3 +102,71 @@ func TestPersistHermesSessionSkills(t *testing.T) {
 		t.Fatalf("next run does not load saved skills: %v", dirs)
 	}
 }
+
+func TestHermesSkillStorePreservesTrackedOverlayAcrossPrepareAndReuse(t *testing.T) {
+	for _, withSkill := range []bool{false, true} {
+		name := "empty skills"
+		if withSkill {
+			name = "bound skill"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			source := t.TempDir()
+			store := filepath.Join(t.TempDir(), "agent-skills")
+			task := TaskContextForEnv{IssueID: "tracked-hermes-skills"}
+			if withSkill {
+				task.AgentSkills = []SkillContextForEnv{{ID: "selected", Name: "Review Code", Content: "Review the change."}}
+			}
+			env, err := Prepare(PrepareParams{
+				WorkspacesRoot: root, WorkspaceID: "workspace", TaskID: "task-tracked-hermes-skills",
+				Provider: "hermes", HermesSourceHome: source, HermesSkillStore: store, Task: task,
+			}, testLogger())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer env.Cleanup(true)
+			for _, stage := range []string{"Prepare", "Reuse", "Reuse without bound skills"} {
+				if stage == "Reuse without bound skills" {
+					task.AgentSkills = nil
+				}
+				if stage != "Prepare" {
+					env = Reuse(ReuseParams{
+						WorkspacesRoot: root, WorkDir: env.WorkDir,
+						Provider: "hermes", HermesSourceHome: source, HermesSkillStore: store, Task: task,
+					}, testLogger())
+				}
+				if env == nil || env.HermesHome == "" {
+					t.Fatalf("%s lost the skill-store overlay: %+v", stage, env)
+				}
+				data, err := os.ReadFile(filepath.Join(env.HermesHome, "config.yaml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var config struct {
+					Skills struct {
+						CreateDir string `yaml:"create_dir"`
+					}
+				}
+				if err := yaml.Unmarshal(data, &config); err != nil {
+					t.Fatal(err)
+				}
+				if config.Skills.CreateDir != store {
+					t.Fatalf("%s skills.create_dir = %q, want %q", stage, config.Skills.CreateDir, store)
+				}
+				if len(task.AgentSkills) == 0 {
+					if len(env.SkillDirectories) != 0 {
+						t.Fatalf("%s retained stale skill directories: %v", stage, env.SkillDirectories)
+					}
+					continue
+				}
+				want := filepath.Join(env.HermesHome, "skills", "review-code")
+				if env.SkillDirectories["selected"] != want {
+					t.Fatalf("%s selected skill directory = %q, want %q", stage, env.SkillDirectories["selected"], want)
+				}
+				if _, err := os.Stat(filepath.Join(want, "SKILL.md")); err != nil {
+					t.Fatalf("%s selected skill is unavailable: %v", stage, err)
+				}
+			}
+		})
+	}
+}

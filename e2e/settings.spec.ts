@@ -173,6 +173,9 @@ test.describe("Settings", () => {
 
     await page.goto(`/${workspaceSlug}/settings?tab=apps`, { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/apps$`), { timeout: 10000 });
-    await expect(page.getByRole("tab", { name: /All apps/ })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Apps", exact: true })
+        .getByRole("link", { name: /^All apps(?:\s|$)/ }),
+    ).toBeVisible();
   });
 });

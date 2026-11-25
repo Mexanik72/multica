@@ -334,7 +334,7 @@ test("docs link from issues, show up in Cmd+K, and reorganize from the tree", as
   });
 
   // A doc mention renders as a chip that opens the doc.
-  await page.goto(`/${slug}/issues/${issue.id}`);
+  await page.goto(`/${slug}/issues/${issue.identifier}`);
   const chip = page.locator("a.doc-mention").filter({ hasText: "Release runbook" }).first();
   await expect(chip).toHaveAttribute("href", new RegExp(`/${slug}/docs/${doc.id}$`));
 
